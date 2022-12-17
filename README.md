@@ -21,10 +21,16 @@ If you are a U.S. citizen interested in projects like this, to develop Ghidra an
 cybersecurity tools for NSA to help protect our nation and its allies, consider applying for a 
 [career with us][career].
 
+## Security Warning
+
+**WARNING:** There are known security vulnerabilities within certain versions of Ghidra.  Before 
+proceeding, please read through Ghidra's [Security Advisories][security] for a better understanding 
+of how you might be impacted.
+
 ## Install
 To install an official pre-built multi-platform Ghidra release:  
-* Install [JDK 11 64-bit][jdk11]
-* Download a Ghidra release file from [ghidra-sre.org][project]
+* Install [JDK 17 64-bit][jdk17]
+* Download a Ghidra [release file][releases]
 * Extract the Ghidra release file
 * Launch Ghidra: `./ghidraRun` (or `ghidraRun.bat` for Windows)
 
@@ -37,10 +43,14 @@ directory.
 To create the latest development build for your platform from this source repository:
 
 ##### Install build tools:
-* [JDK 11 64-bit][jdk11]
-* [Gradle 6 or 7][gradle]
+* [JDK 17 64-bit][jdk17]
+* [Gradle 7.3+][gradle]
 * make, gcc, and g++ (Linux/macOS-only)
-* [Microsoft Visual Studio][vs] (Windows-only)
+* [Microsoft Visual Studio][vs] 2017+ or [Microsoft C++ Build Tools][vcbuildtools] with the
+  following components installed (Windows-only):
+  - MSVC
+  - Windows SDK
+  - C++ ATL
 
 ##### Download and extract the source:
 [Download from GitHub][master]
@@ -76,15 +86,13 @@ To develop the Ghidra tool itself, it is highly recommended to use Eclipse, whic
 development process has been highly customized for.
 
 ##### Install build and development tools:
-* Follow the above build instructions so the build completes without errors
+* Follow the above [build instructions](#build) so the build completes without errors
 * Install [Eclipse IDE for Java Developers][eclipse]
 
-##### Prepare the development environment (Linux-only, see **NOTE** for Windows/macOS):
+##### Prepare the development environment:
 ``` 
-$ gradle prepdev eclipse buildNatives_linux64
+$ gradle prepdev eclipse buildNatives
 ```
-**NOTE:** If you are on a Windows or macOS platform, change `buildNatives_linux64` to 
-`buildNatives_win64` or `gradle buildNatives_osx64`. 
 
 ##### Import Ghidra projects into Eclipse:
 * *File* -> *Import...*
@@ -108,9 +116,11 @@ source project.
 [contrib]: CONTRIBUTING.md
 [devguide]: DevGuide.md
 [career]: https://www.intelligencecareers.gov/nsa
-[project]: https://www.ghidra-sre.org/
-[jdk11]: https://adoptium.net/releases.html?variant=openjdk11&jvmVariant=hotspot
+[releases]: https://github.com/NationalSecurityAgency/ghidra/releases
+[jdk17]: https://adoptium.net/temurin/releases
 [gradle]: https://gradle.org/releases/
 [vs]: https://visualstudio.microsoft.com/vs/community/
+[vcbuildtools]: https://visualstudio.microsoft.com/visual-cpp-build-tools/
 [eclipse]: https://www.eclipse.org/downloads/packages/
 [master]: https://github.com/NationalSecurityAgency/ghidra/archive/refs/heads/master.zip
+[security]: https://github.com/NationalSecurityAgency/ghidra/security/advisories

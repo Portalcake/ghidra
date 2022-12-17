@@ -34,8 +34,8 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.listing.VariableUtilities.VariableConflictHandler;
 import ghidra.program.model.symbol.*;
 import ghidra.trace.database.DBTraceUtils;
-import ghidra.trace.database.DBTraceUtils.AddressDBFieldCodec;
-import ghidra.trace.database.DBTraceUtils.DecodesAddresses;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.AddressDBFieldCodec;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.DecodesAddresses;
 import ghidra.trace.database.bookmark.DBTraceBookmarkType;
 import ghidra.trace.database.listing.DBTraceCommentAdapter;
 import ghidra.trace.database.listing.DBTraceData;
@@ -55,7 +55,17 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.InvalidInputException;
 import ghidra.util.task.TaskMonitor;
 
-@DBAnnotatedObjectInfo(version = 0)
+/**
+ * The implementation of a function symbol, directly via a database object
+ * 
+ * <p>
+ * Version history:
+ * <ul>
+ * <li>1: Change {link #entryPoint} to 10-byte fixed encoding</li>
+ * <li>0: Initial version and previous unversioned implementation</li>
+ * </ul>
+ */
+@DBAnnotatedObjectInfo(version = 1)
 public class DBTraceFunctionSymbol extends DBTraceNamespaceSymbol
 		implements TraceFunctionSymbol, DecodesAddresses {
 	@SuppressWarnings("hiding")
@@ -103,8 +113,9 @@ public class DBTraceFunctionSymbol extends DBTraceNamespaceSymbol
 	@DBAnnotatedColumn(STACK_RETURN_OFFSET_COLUMN_NAME)
 	static DBObjectColumn STACK_RETURN_OFFSET_COLUMN;
 
+	// Do I need to index entry, too? Not just body?
 	@DBAnnotatedField(column = ENTRY_COLUMN_NAME, codec = AddressDBFieldCodec.class)
-	protected Address entryPoint; // Do I need to index entry, too? Not just body?
+	protected Address entryPoint = Address.NO_ADDRESS;
 	@DBAnnotatedField(column = START_SNAP_COLUMN_NAME)
 	protected long startSnap;
 	@DBAnnotatedField(column = END_SNAP_COLUMN_NAME)
@@ -150,11 +161,6 @@ public class DBTraceFunctionSymbol extends DBTraceNamespaceSymbol
 
 		lifespan = DBTraceUtils.toRange(startSnap, endSnap);
 		thunked = thunkedKey == -1 ? null : manager.functionStore.getObjectAt(thunkedKey);
-	}
-
-	@Override
-	public Address decodeAddress(int spaceId, long offset) {
-		return manager.trace.getBaseAddressFactory().getAddress(spaceId, offset);
 	}
 
 	protected void set(Range<Long> lifespan, Address entryPoint, String name,
@@ -1852,12 +1858,31 @@ public class DBTraceFunctionSymbol extends DBTraceNamespaceSymbol
 		}
 	}
 
+	private List<Address> getFunctionThunkAddresses(long functionKey, boolean recursive) {
+		Collection<DBTraceFunctionSymbol> thunkSymbols =
+			manager.functionsByThunked.get(getKey());
+		if (thunkSymbols == null || thunkSymbols.isEmpty()) {
+			return null;
+		}
+		List<Address> result = new ArrayList<>();
+		for (DBTraceFunctionSymbol thunkSymbol : thunkSymbols) {
+			result.add(thunkSymbol.entryPoint);
+			if (recursive) {
+				List<Address> thunkAddrs = getFunctionThunkAddresses(thunkSymbol.getKey(), true);
+				if (thunkAddrs != null) {
+					result.addAll(thunkAddrs);
+				}
+			}
+		}
+		return result;
+	}
+
 	@Override
-	public Address[] getFunctionThunkAddresses() {
+	public Address[] getFunctionThunkAddresses(boolean recursive) {
 		try (LockHold hold = LockHold.lock(manager.lock.readLock())) {
-			List<Address> result = new ArrayList<>();
-			for (DBTraceFunctionSymbol thunk : manager.functionsByThunked.get(getKey())) {
-				result.add(thunk.entryPoint);
+			List<Address> result = getFunctionThunkAddresses(getKey(), recursive);
+			if (result == null) {
+				return null;
 			}
 			return result.toArray(new Address[result.size()]);
 		}

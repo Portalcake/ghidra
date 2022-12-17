@@ -15,12 +15,14 @@
  */
 package ghidra.program.model.lang;
 
+import java.io.IOException;
 import java.util.ArrayList;
 
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.listing.Program;
 import ghidra.program.model.listing.VariableStorage;
+import ghidra.program.model.pcode.Encoder;
 import ghidra.xml.XmlParseException;
 import ghidra.xml.XmlPullParser;
 
@@ -38,14 +40,13 @@ public interface ParamList {
 	 * Given a list of datatypes, calculate the storage locations used for passing those datatypes
 	 * @param prog is the active progra
 	 * @param proto is the list of datatypes
-	 * @param isinput is true if this parameter list is being processed for input arguments, false for output
 	 * @param res is the vector for holding the VariableStorage corresponding to datatypes
 	 * @param addAutoParams if true add/process auto-parameters
 	 */
-	public void assignMap(Program prog, DataType[] proto, boolean isinput,
-			ArrayList<VariableStorage> res, boolean addAutoParams);
+	public void assignMap(Program prog, DataType[] proto, ArrayList<VariableStorage> res,
+			boolean addAutoParams);
 
-	public void saveXml(StringBuilder buffer, boolean isInput);
+	public void encode(Encoder encoder, boolean isInput) throws IOException;
 
 	public void restoreXml(XmlPullParser parser, CompilerSpec cspec) throws XmlParseException;
 
@@ -80,4 +81,11 @@ public interface ParamList {
 	public boolean possibleParamWithSlot(Address loc, int size, WithSlotRec res);
 
 	public boolean isThisBeforeRetPointer();
+
+	/**
+	 * Determine if this ParmList is equivalent to another instance
+	 * @param obj is the other instance
+	 * @return true if they are equivalent
+	 */
+	public boolean isEquivalent(ParamList obj);
 }

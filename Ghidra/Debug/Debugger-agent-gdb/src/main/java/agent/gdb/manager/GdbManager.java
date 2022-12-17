@@ -26,7 +26,6 @@ import agent.gdb.manager.breakpoint.GdbBreakpointInsertions;
 import agent.gdb.manager.impl.GdbManagerImpl;
 import agent.gdb.pty.PtyFactory;
 import agent.gdb.pty.linux.LinuxPty;
-import agent.gdb.pty.linux.LinuxPtyFactory;
 
 /**
  * The controlling side of a GDB session, using GDB/MI, usually via a pseudo-terminal
@@ -36,7 +35,7 @@ import agent.gdb.pty.linux.LinuxPtyFactory;
  * {@link CompletableFuture} all send commands to GDB, and the future completes when the command has
  * been executed.
  */
-public interface GdbManager extends AutoCloseable, GdbBreakpointInsertions {
+public interface GdbManager extends AutoCloseable, GdbConsoleOperations, GdbBreakpointInsertions {
 	public static final String DEFAULT_GDB_CMD = "/usr/bin/gdb";
 
 	/**
@@ -86,8 +85,7 @@ public interface GdbManager extends AutoCloseable, GdbBreakpointInsertions {
 	 */
 	public static void main(String[] args)
 			throws InterruptedException, ExecutionException, IOException {
-		// TODO: Choose factory by host OS
-		try (GdbManager mgr = newInstance(new LinuxPtyFactory())) {
+		try (GdbManager mgr = newInstance(PtyFactory.local())) {
 			mgr.start(DEFAULT_GDB_CMD, args);
 			mgr.runRC().get();
 			mgr.consoleLoop();
@@ -396,7 +394,9 @@ public interface GdbManager extends AutoCloseable, GdbBreakpointInsertions {
 	 * This is used to squelch normal processing of a stopped event until the next prompt
 	 * 
 	 * @return a future which completes when the "command" has finished execution
+	 * @deprecated I don't see this being used anywhere. Probably defunct.
 	 */
+	@Deprecated
 	CompletableFuture<Void> claimStopped();
 
 	/**
@@ -431,51 +431,6 @@ public interface GdbManager extends AutoCloseable, GdbBreakpointInsertions {
 	 * @return a future which completes then GDB has executed the command
 	 */
 	CompletableFuture<Void> removeInferior(GdbInferior inferior);
-
-	/**
-	 * Execute an arbitrary CLI command, printing output to the CLI console
-	 * 
-	 * <p>
-	 * Note: to ensure a certain thread or inferior has focus for a console command, see
-	 * {@link GdbThread#console(String)} and {@link GdbInferior#console(String)}.
-	 * 
-	 * @param command the command to execute
-	 * @return a future that completes when GDB has executed the command
-	 */
-	CompletableFuture<Void> console(String command);
-
-	/**
-	 * Execute an arbitrary CLI command, capturing its console output
-	 * 
-	 * <p>
-	 * The output will not be printed to the CLI console. To ensure a certain thread or inferior has
-	 * focus for a console command, see {@link GdbThread#consoleCapture(String)} and
-	 * {@link GdbInferior#consoleCapture(String)}. The caller should take care that other commands
-	 * or events are not actively producing console output. If they are, those lines may be captured
-	 * though they are unrelated to the given command. Generally, this can be achieved by assuring
-	 * that GDB is in the {@link GdbState#STOPPED} state using {@link #waitForState(GdbState)}.
-	 * 
-	 * @param command the command to execute
-	 * @return a future that completes with the captured output when GDB has executed the command
-	 */
-	CompletableFuture<String> consoleCapture(String command);
-
-	/**
-	 * Interrupt the GDB session
-	 * 
-	 * <p>
-	 * The manager may employ a variety of mechanisms depending on the current configuration. If
-	 * multiple interpreters are available, it will issue an "interrupt" command on whichever
-	 * interpreter it believes is responsive -- usually the opposite of the one issuing the last
-	 * run, continue, step, etc. command. Otherwise, it sends Ctrl-C to GDB's TTY, which
-	 * unfortunately is notoriously unreliable. The manager will send Ctrl-C to the TTY up to three
-	 * times, waiting about 10ms between each, until GDB issues a stopped event and presents a new
-	 * prompt. If that fails, it is up to the user to find an alternative means to interrupt the
-	 * target, e.g., issuing {@code kill [pid]} from the a terminal on the target's host.
-	 * 
-	 * @return a future that completes when GDB has entered the stopped state
-	 */
-	CompletableFuture<Void> interrupt();
 
 	/**
 	 * List GDB's inferiors

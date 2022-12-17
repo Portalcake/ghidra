@@ -106,7 +106,7 @@ public class FunctionTestDouble implements Function {
 
 	@Override
 	public String getCallFixup() {
-		throw new UnsupportedOperationException();
+		return null;
 	}
 
 	@Override
@@ -407,7 +407,7 @@ public class FunctionTestDouble implements Function {
 	}
 
 	@Override
-	public Address[] getFunctionThunkAddresses() {
+	public Address[] getFunctionThunkAddresses(boolean recursive) {
 		throw new UnsupportedOperationException();
 	}
 

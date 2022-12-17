@@ -34,10 +34,10 @@ public class ArrayTypeApplier extends MsTypeApplier {
 	/**
 	 * Constructor for the applicator that applies a "array" type, transforming it into a
 	 * Ghidra DataType.
-	 * @param applicator {@link PdbApplicator} for which this class is working.
+	 * @param applicator {@link DefaultPdbApplicator} for which this class is working.
 	 * @param msType {@link AbstractArrayMsType} to processes.
 	 */
-	public ArrayTypeApplier(PdbApplicator applicator, AbstractArrayMsType msType) {
+	public ArrayTypeApplier(DefaultPdbApplicator applicator, AbstractArrayMsType msType) {
 		super(applicator, msType);
 	}
 
@@ -117,8 +117,17 @@ public class ArrayTypeApplier extends MsTypeApplier {
 		}
 
 		long longUnderlyingSize =
-			PdbApplicator.bigIntegerToLong(applicator, underlyingTypeApplier.getSize());
+			DefaultPdbApplicator.bigIntegerToLong(applicator, underlyingTypeApplier.getSize());
 		DataType underlyingDataType = underlyingTypeApplier.getDataType();
+
+		if (underlyingDataType == null) {
+			Long v = longUnderlyingSize;
+			underlyingDataType = Undefined.getUndefinedDataType(v.intValue());
+			String msg = "PDB Type index " + index + ":\n   Null underlying data type for " +
+				underlyingTypeApplier.getClass().getSimpleName() + ":\n      " +
+				underlyingTypeApplier + "\n   Using " + underlyingDataType;
+			Msg.warn(this, msg);
+		}
 
 		if (longUnderlyingSize > Integer.MAX_VALUE) {
 			String msg = "PDB " + type.getClass().getSimpleName() + ": Underlying type too large " +

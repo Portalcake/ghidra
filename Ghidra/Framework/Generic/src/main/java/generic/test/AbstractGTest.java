@@ -26,6 +26,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.rules.TestName;
 
 import ghidra.framework.Application;
@@ -37,10 +38,10 @@ import junit.framework.AssertionFailedError;
 
 /**
  * A root for system tests that provides known system information.
- * 
+ *
  * <P>This class exists so that fast unit tests have a place to share data without having the
  * slowness of more heavy weight concepts like {@link Application}, logging, etc.
- * 
+ *
  * <P>						!!	WARNING  !!
  * This test is meant to initialize quickly.  All file I/O should be avoided.
  */
@@ -68,6 +69,7 @@ public abstract class AbstractGTest {
 
 	private static String testDirectoryPath = createTestDirectoryPath();
 
+	@Rule
 	public TestName testName = new TestName();
 
 	/**
@@ -295,6 +297,16 @@ public abstract class AbstractGTest {
 		}
 	}
 
+	public static <T> void assertContainsString(String expected, String actual) {
+		assertTrue("String not contained.  Found: '" + actual + "'\n\tExpected to contain: '" +
+			expected + "'", actual.contains(expected));
+	}
+
+	public static <T> void assertContainsStringIgnoringCase(String expected, String actual) {
+		assertTrue("String not contained.  Found: '" + actual + "'\n\tExpected to contain: '" +
+			expected + "'", actual.toLowerCase().contains(expected.toLowerCase()));
+	}
+
 	private static String printListFailureMessage(String message, List<?> expected,
 			List<?> actual) {
 
@@ -318,7 +330,7 @@ public abstract class AbstractGTest {
 
 	/**
 	 * Returns the current test method name
-	 * 
+	 *
 	 * @return the current test method name
 	 */
 	public String getName() {
@@ -327,7 +339,7 @@ public abstract class AbstractGTest {
 
 	/**
 	 * Friendly way to create an array of bytes with static values.
-	 * 
+	 *
 	 * @param unsignedBytes var-args list of unsigned byte values (ie. 0..255)
 	 * @return array of bytes
 	 */
@@ -338,7 +350,6 @@ public abstract class AbstractGTest {
 		}
 		return result;
 	}
-
 
 //==================================================================================================
 // Wait Methods
@@ -360,7 +371,7 @@ public abstract class AbstractGTest {
 
 	/**
 	 * Waits for the given latch to be counted-down
-	 * 
+	 *
 	 * @param latch the latch to await
 	 * @throws AssertionFailedError if the condition is not met within the timeout period
 	 */
@@ -376,7 +387,7 @@ public abstract class AbstractGTest {
 	}
 
 	/**
-	 * Waits for the given AtomicBoolean to return true.  This is a convenience method for 
+	 * Waits for the given AtomicBoolean to return true.  This is a convenience method for
 	 * {@link #waitFor(BooleanSupplier)}.
 	 *
 	 * @param ab the atomic boolean
@@ -564,5 +575,5 @@ public abstract class AbstractGTest {
 
 //==================================================================================================
 // End Wait Methods
-//==================================================================================================	
+//==================================================================================================
 }

@@ -45,7 +45,7 @@ public class GdbArmDebuggerMappingOpinionTest extends AbstractGhidraHeadlessInte
 
 		TestTargetProcess process = model.addProcess(1234);
 
-		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process);
+		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process, false);
 		assertFalse(offers.isEmpty());
 		Set<DebuggerMappingOffer> ldefsOnes = offers.stream()
 				.filter(o -> o.getClass().equals(GdbArmOffer.class))
@@ -68,7 +68,7 @@ public class GdbArmDebuggerMappingOpinionTest extends AbstractGhidraHeadlessInte
 
 		TestTargetProcess process = model.addProcess(1234);
 
-		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process);
+		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process, false);
 		assertFalse(offers.isEmpty());
 		Set<DebuggerMappingOffer> ldefsOnes = offers.stream()
 				.filter(o -> o.getClass().equals(GdbArmOffer.class))
@@ -88,7 +88,7 @@ public class GdbArmDebuggerMappingOpinionTest extends AbstractGhidraHeadlessInte
 
 		TestTargetProcess process = model.addProcess(1234);
 
-		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process);
+		List<DebuggerMappingOffer> offers = DebuggerMappingOpinion.queryOpinions(process, false);
 		assertFalse(offers.isEmpty());
 		Set<DebuggerMappingOffer> ldefsOnes = offers.stream()
 				.filter(o -> o.getClass().equals(GdbAArch64Offer.class))

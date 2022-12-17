@@ -23,6 +23,12 @@
 
 class Symbol;
 
+extern AttributeId ATTRIB_CLASS;	///< Marshaling attribute "class"
+extern AttributeId ATTRIB_REPREF;	///< Marshaling attribute "repref"
+extern AttributeId ATTRIB_SYMREF;	///< Marshaling attribute "symref"
+
+extern ElementId ELEM_HIGH;		///< Marshaling element \<high>
+
 /// \brief A high-level variable modeled as a list of low-level variables, each written once
 ///
 /// In the Static Single Assignment (SSA) representation of a function's data-flow, the Varnode
@@ -82,6 +88,7 @@ private:
   void flagsDirty(void) const { highflags |= flagsdirty | namerepdirty; }	///< Mark the boolean properties as \e dirty
   void coverDirty(void) const { highflags |= coverdirty; }	///< Mark the cover as \e dirty
   void typeDirty(void) const { highflags |= typedirty; }	///< Mark the data-type as \e dirty
+  void symbolDirty(void) const { highflags |= symboldirty; }	///< Mark the symbol as \e dirty
   void setUnmerged(void) const { highflags |= unmerged; }	///< Mark \b this as having merge problems
 public:
   HighVariable(Varnode *vn);		///< Construct a HighVariable with a single member Varnode
@@ -130,7 +137,7 @@ public:
   bool isUnattached(void) const { return inst.empty(); }	///< Return \b true if \b this has no member Varnode
   bool isTypeLock(void) const { updateType(); return ((flags & Varnode::typelock)!=0); }	///< Return \b true if \b this is \e typelocked
   bool isNameLock(void) const { updateFlags(); return ((flags & Varnode::namelock)!=0); }	///< Return \b true if \b this is \e namelocked
-  void saveXml(ostream &s) const;		///< Save the variable to stream as an XML \<high\> tag
+  void encode(Encoder &encoder) const;		///< Encode \b this variable to stream as a \<high> element
 #ifdef MERGEMULTI_DEBUG
   void verifyCover(void) const;
 #endif

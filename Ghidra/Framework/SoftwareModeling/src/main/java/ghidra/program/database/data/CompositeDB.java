@@ -19,6 +19,7 @@ import java.io.IOException;
 
 import db.DBRecord;
 import ghidra.docking.settings.Settings;
+import ghidra.docking.settings.SettingsImpl;
 import ghidra.program.database.DBObjectCache;
 import ghidra.program.model.data.*;
 import ghidra.program.model.mem.MemBuffer;
@@ -71,6 +72,9 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 	 * @return preferred component length
 	 */
 	protected int getPreferredComponentLength(DataType dataType, int length) {
+		if (DataTypeComponent.usesZeroLengthComponent(dataType)) {
+			return 0;
+		}
 		if ((isPackingEnabled() || (this instanceof Union)) && !(dataType instanceof Dynamic)) {
 			length = -1; // force use of datatype size
 		}
@@ -87,7 +91,7 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 		}
 		return length;
 	}
-
+	
 	@Override
 	protected String doGetName() {
 		return record.getString(CompositeDBAdapter.COMPOSITE_NAME_COL);
@@ -96,6 +100,11 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 	@Override
 	protected long doGetCategoryID() {
 		return record.getLongValue(CompositeDBAdapter.COMPOSITE_CAT_COL);
+	}
+
+	@Override
+	protected Settings doGetDefaultSettings() {
+		return SettingsImpl.NO_SETTINGS;
 	}
 
 	/**
@@ -191,6 +200,22 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 	@Override
 	public abstract boolean hasLanguageDependantLength();
 	
+	/**
+	 * Determine if this composite should be treated as undefined.
+	 * <p>
+	 * A composite is considered undefined with a zero-length when it has 
+	 * no components and packing is disabled.  A {@link DataTypeComponent} defined by an
+	 * an datatype which is not-yet-defined (i.e., {@link DataType#isNotYetDefined()} is true) 
+	 * will always have a size of 1.  If an empty composite should be treated as 
+	 * fully specified, packing on the composite should be enabled to ensure that 
+	 * a zero-length component is used should the occassion arise (e.g., empty structure 
+	 * placed within union as a component).
+	 */
+	@Override
+	public final boolean isNotYetDefined() {
+		return getNumComponents() == 0 && !isPackingEnabled();
+	}
+
 	@Override
 	public Object getValue(MemBuffer buf, Settings settings, int length) {
 		return null;
@@ -646,8 +671,8 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 	}
 
 	/**
-	 * Copy packing and alignment settings from specified composite without
-	 * repacking or notification.
+	 * Set packing and alignment settings.  Record is modified but it is not written to the
+	 * database and no repacking or notification is performed.
 	 * @param composite instance whose packing and alignment are to be copied
 	 * @throws IOException if database IO error occured
 	 */
@@ -656,12 +681,11 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 			composite.getStoredMinimumAlignment());
 		record.setIntValue(CompositeDBAdapter.COMPOSITE_PACKING_COL,
 			composite.getStoredPackingValue());
-		compositeAdapter.updateRecord(record, true);
 	}
 
 	@Override
 	public String toString() {
-		return CompositeDataTypeImpl.toString(this);
+		return CompositeInternal.toString(this);
 	}
 	
 	/**
@@ -670,6 +694,8 @@ abstract class CompositeDB extends DataTypeDB implements CompositeInternal {
 	 * specification which may be influenced by the data organization.
 	 * If this composite changes parents will not be
 	 * notified - handling this is the caller's responsibility.
+	 * It is assumed that this method is invoked on composites
+	 * in dependency order.
 	 * @throws IOException if database IO error occurs
 	 */
 	protected abstract void fixupComponents() throws IOException;

@@ -1,17 +1,5 @@
 /* ###
- * IP: GHIDRA
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- * 
- *      http://www.apache.org/licenses/LICENSE-2.0
- * 
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * IP: Public Domain
  */
 /****************************************************************************
  * Establish Visual Studio configuration environment for Windows native builds
@@ -27,7 +15,7 @@ if (!hasProperty("VISUAL_STUDIO_INSTALL_DIR")) {
 
 def configureVisualStudio() { 
 	
-	if (org.gradle.internal.os.OperatingSystem.current().isWindows()) {
+	if (isCurrentWindows()) {
 		
 		// Initialize variables
 		rootProject.ext.VISUAL_STUDIO_INSTALL_DIR = ""
@@ -41,13 +29,26 @@ def configureVisualStudio() {
 		println "Searching for latest Visual Studio and required components..."
 		def vswherePath = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe"
 		if (!file(vswherePath).exists()) {
-			println "Visual Studio not found!"
+			println "  -> Visual Studio vswhere.exe not found!"
 			return
 		}
-		def vswhereOutput = "${vswherePath} -latest -format json".execute().text.trim()
+		def vswhereProcess = "${vswherePath} -products * -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json -utf8".execute()
+		def vswhereOutput = vswhereProcess.text.trim()
+		def vswhereExit = vswhereProcess.exitValue()
+		if (vswhereExit != 0) {
+			if (vswhereExit == 87) { // ERROR_INVALID_PARAMATER
+				println "  -> Visual Studio vswhere.exe was passed an unsupported argument!"
+			}
+			else {
+				println "  -> Visual Studio vswhere.exe returned an error code (${vswhereExit})!"
+			}
+			println "  -> Please confirm ${vswherePath} is version 2.5 or later."
+			println "  -> Please check README.md or InstallationGuide.html to verify you are using a supported version of Visual Studio." 
+			return
+		}
 		def vswhereJson = new groovy.json.JsonSlurper().parseText(vswhereOutput);
 		if (vswhereJson.isEmpty()) {
-			println "Visual Studio not found!"
+			println "  -> Visual Studio not found!"
 			return
 		}
 		def vsInstallDir = vswhereJson[0].installationPath

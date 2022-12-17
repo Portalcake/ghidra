@@ -18,6 +18,7 @@ package ghidra.app.plugin.core.debug.service.model;
 import java.math.BigInteger;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.*;
 import java.util.stream.Collectors;
 
@@ -29,7 +30,7 @@ import ghidra.async.AsyncLazyMap;
 import ghidra.dbg.target.*;
 import ghidra.dbg.util.PathUtils;
 import ghidra.dbg.util.PathUtils.PathComparator;
-import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
 import ghidra.trace.model.breakpoint.TraceBreakpoint;
 import ghidra.trace.model.breakpoint.TraceBreakpointKind;
 import ghidra.trace.model.memory.TraceMemoryRegion;
@@ -52,7 +53,7 @@ public class TraceObjectManager {
 
 	private DefaultTraceRecorder recorder;
 
-	private AbstractDebuggerTargetTraceMapper mapper;
+	private DefaultDebuggerTargetTraceMapper mapper;
 	protected DebuggerMemoryMapper memMapper;
 	protected AsyncLazyMap<TargetRegisterContainer, DebuggerRegisterMapper> regMappers;
 	//private AbstractRecorderRegisterSet threadRegisters;
@@ -74,7 +75,7 @@ public class TraceObjectManager {
 	private LinkedHashMap<Class<?>, BiFunction<TargetObject, Map<String, ?>, Void>> handlerMapAttributes =
 		new LinkedHashMap<>();
 
-	public TraceObjectManager(TargetObject target, AbstractDebuggerTargetTraceMapper mapper,
+	public TraceObjectManager(TargetObject target, DefaultDebuggerTargetTraceMapper mapper,
 			DefaultTraceRecorder recorder) {
 		this.target = target;
 		this.mapper = mapper;
@@ -87,9 +88,8 @@ public class TraceObjectManager {
 		//objectListener.addListenerAndConsiderSuccessors(target);
 	}
 
-	public void init() {
-		objectListener.init();
-		eventListener.init();
+	public CompletableFuture<Void> init() {
+		return objectListener.init().thenCombine(eventListener.init(), (v1, v2) -> null);
 	}
 
 	private void defaultHandlers() {
@@ -255,11 +255,20 @@ public class TraceObjectManager {
 			TraceThread traceThread = threadRecorder.getTraceThread();
 			recorder.createSnapshot(traceThread + " started", traceThread, null);
 			try (UndoableTransaction tid =
-				UndoableTransaction.start(recorder.getTrace(), "Adjust thread creation", true)) {
-				traceThread.setCreationSnap(recorder.getSnap());
+				UndoableTransaction.start(recorder.getTrace(), "Adjust thread creation")) {
+				long existing = traceThread.getCreationSnap();
+				if (existing == Long.MIN_VALUE) {
+					traceThread.setCreationSnap(recorder.getSnap());
+				}
+				else {
+					traceThread.setDestructionSnap(Long.MAX_VALUE);
+				}
 			}
 			catch (DuplicateNameException e) {
 				throw new AssertionError(e); // Should be shrinking
+			}
+			catch (IllegalArgumentException e) {
+				Msg.warn(this, "Unable to set creation snap for " + traceThread);
 			}
 		}
 	}
@@ -349,6 +358,7 @@ public class TraceObjectManager {
 		if (memMapper != null) {
 			return;
 		}
+		recorder.memoryRecorder.offerProcessMemory((TargetMemory) added);
 		mapper.offerMemory((TargetMemory) added).thenAccept(mm -> {
 			synchronized (this) {
 				memMapper = mm;
@@ -362,7 +372,7 @@ public class TraceObjectManager {
 	}
 
 	public void removeMemory(TargetObject removed) {
-		// Nothing for now
+		recorder.memoryRecorder.removeProcessMemory((TargetMemory) removed);
 	}
 
 	public void addMemoryRegion(TargetObject added) {
@@ -457,7 +467,7 @@ public class TraceObjectManager {
 		return object;
 	}
 
-	public AbstractDebuggerTargetTraceMapper getMapper() {
+	public DefaultDebuggerTargetTraceMapper getMapper() {
 		return mapper;
 	}
 
@@ -486,12 +496,10 @@ public class TraceObjectManager {
 
 	public void attributesChangedBreakpointLocation(TargetObject obj, Map<String, ?> added) {
 		TargetBreakpointLocation loc = (TargetBreakpointLocation) obj;
-		if (added.containsKey(TargetBreakpointLocation.LENGTH_ATTRIBUTE_NAME) ||
-			added.containsKey(TargetBreakpointLocation.ADDRESS_ATTRIBUTE_NAME)) {
-			Address traceAddr = recorder.getMemoryMapper().targetToTrace(loc.getAddress());
+		if (added.containsKey(TargetBreakpointLocation.RANGE_ATTRIBUTE_NAME)) {
+			AddressRange traceRng = recorder.getMemoryMapper().targetToTrace(loc.getRange());
 			String path = loc.getJoinedPath(".");
-			int length = loc.getLengthOrDefault(1);
-			recorder.breakpointRecorder.breakpointLocationChanged(length, traceAddr, path);
+			recorder.breakpointRecorder.breakpointLocationChanged(traceRng, path);
 		}
 	}
 
@@ -513,10 +521,14 @@ public class TraceObjectManager {
 		}
 		if (added.containsKey(TargetObject.VALUE_ATTRIBUTE_NAME)) {
 			TargetRegister register = (TargetRegister) parent;
-			String valstr = (String) added.get(TargetObject.VALUE_ATTRIBUTE_NAME);
-			byte[] value = new BigInteger(valstr, 16).toByteArray();
+			Object val = added.get(TargetObject.VALUE_ATTRIBUTE_NAME);
 			ManagedThreadRecorder rec = recorder.getThreadRecorderForSuccessor(register);
-			rec.recordRegisterValue(register, value);
+			if (val instanceof String valstr) {
+				rec.recordRegisterValue(register, new BigInteger(valstr, 16).toByteArray());
+			}
+			else if (val instanceof byte[] valarr) {
+				rec.recordRegisterValue(register, valarr);
+			}
 		}
 	}
 
@@ -535,7 +547,7 @@ public class TraceObjectManager {
 			if (rec != null) {
 				String name = (String) added.get(TargetObject.DISPLAY_ATTRIBUTE_NAME);
 				try (UndoableTransaction tid =
-					UndoableTransaction.start(rec.getTrace(), "Renamed thread", true)) {
+					UndoableTransaction.start(rec.getTrace(), "Rename thread")) {
 					rec.getTraceThread().setName(name);
 				}
 			}
@@ -690,6 +702,12 @@ public class TraceObjectManager {
 	public void disposeModelListeners() {
 		eventListener.dispose();
 		objectListener.dispose();
+	}
+
+	public CompletableFuture<Void> flushEvents() {
+		return eventListener.flushEvents().thenCompose(__ -> {
+			return objectListener.flushEvents();
+		});
 	}
 
 }

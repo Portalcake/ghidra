@@ -15,24 +15,25 @@
  */
 package ghidra.file.formats.java;
 
-import java.io.File;
+import java.util.Arrays;
+
 import java.io.IOException;
 
 import org.apache.commons.io.FilenameUtils;
 
+import ghidra.app.util.bin.ByteProvider;
 import ghidra.file.jad.JadProcessWrapper;
 import ghidra.formats.gfilesystem.*;
-import ghidra.formats.gfilesystem.factory.GFileSystemFactoryWithFile;
+import ghidra.formats.gfilesystem.factory.GFileSystemFactoryByteProvider;
 import ghidra.formats.gfilesystem.factory.GFileSystemProbeBytesOnly;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
-import utilities.util.ArrayUtilities;
 
 /**
  * Creates instances of {@link JavaClassDecompilerFileSystem}.
  */
 public class JavaClassDecompilerFileSystemFactory implements
-		GFileSystemFactoryWithFile<JavaClassDecompilerFileSystem>, GFileSystemProbeBytesOnly {
+		GFileSystemFactoryByteProvider<JavaClassDecompilerFileSystem>, GFileSystemProbeBytesOnly {
 
 	@Override
 	public int getBytesRequired() {
@@ -42,18 +43,18 @@ public class JavaClassDecompilerFileSystemFactory implements
 	@Override
 	public boolean probeStartBytes(FSRL containerFSRL, byte[] startBytes) {
 		return JadProcessWrapper.isJadPresent() &&
-			ArrayUtilities.arrayRangesEquals(startBytes, 0, JavaClassConstants.MAGIC_BYTES, 0,
-				JavaClassConstants.MAGIC_BYTES.length) &&
+			Arrays.equals(startBytes, 0, JavaClassConstants.MAGIC_BYTES.length,
+				JavaClassConstants.MAGIC_BYTES, 0, JavaClassConstants.MAGIC_BYTES.length) &&
 			"class".equalsIgnoreCase(FilenameUtils.getExtension(containerFSRL.getName()));
 	}
 
 	@Override
-	public JavaClassDecompilerFileSystem create(FSRL containerFSRL, FSRLRoot targetFSRL,
-			File containerFile, FileSystemService fsService, TaskMonitor monitor)
+	public JavaClassDecompilerFileSystem create(FSRLRoot targetFSRL, ByteProvider provider,
+			FileSystemService fsService, TaskMonitor monitor)
 			throws IOException, CancelledException {
 
 		JavaClassDecompilerFileSystem fs =
-			new JavaClassDecompilerFileSystem(targetFSRL, fsService, monitor);
+			new JavaClassDecompilerFileSystem(targetFSRL, provider, fsService, monitor);
 		return fs;
 	}
 

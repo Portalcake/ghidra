@@ -22,7 +22,7 @@ import java.util.NoSuchElementException;
 import org.junit.*;
 
 import generic.test.AbstractGTest;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.TaskMonitor;
 
 /**
  * Tests for Enum data types.
@@ -166,7 +166,7 @@ public class EnumTest extends AbstractGTest {
 		Enum enummDT = (Enum) c.addDataType(enumm, DataTypeConflictHandler.DEFAULT_HANDLER);
 		assertNotNull(enummDT);
 
-		c.remove(enummDT, TaskMonitorAdapter.DUMMY_MONITOR);
+		c.remove(enummDT, TaskMonitor.DUMMY);
 		assertNull(c.getDataType("Color"));
 
 		assertTrue(enummDT.isDeleted());
@@ -235,7 +235,37 @@ public class EnumTest extends AbstractGTest {
 			Assert.fail("Should have gotten no such element exception!");
 		}
 		catch (NoSuchElementException e) {
+			// expected
 		}
 	}
 
+	@Test
+	public void testSetLength() {
+		EnumDataType enumm = new EnumDataType("Color", 1);
+		enumm.setLength(2);
+		assertEquals(2, enumm.getLength());
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testSetLength_TooBig() {
+		EnumDataType enumm = new EnumDataType("Color", 1);
+		enumm.setLength(10);
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testSetLength_TooSmall() {
+		EnumDataType enumm = new EnumDataType("Color", 1);
+		enumm.setLength(0);
+	}
+
+	@Test(expected = IllegalArgumentException.class)
+	public void testSetLength_TooSmallForCurrentValues() {
+		int bytes = 8;
+		EnumDataType enumm = new EnumDataType("Color", bytes);
+		int currentBits = 8 * 8 - 1;
+		long maxValue = (1L << currentBits) - 1;
+		enumm.add("My Name", maxValue);
+
+		enumm.setLength(7);
+	}
 }

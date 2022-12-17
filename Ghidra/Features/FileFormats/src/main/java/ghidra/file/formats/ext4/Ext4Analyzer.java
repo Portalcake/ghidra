@@ -16,7 +16,6 @@
 package ghidra.file.formats.ext4;
 
 import java.io.IOException;
-import java.util.List;
 
 import ghidra.app.util.bin.*;
 import ghidra.app.util.importer.MessageLog;
@@ -50,7 +49,8 @@ public class Ext4Analyzer extends FileFormatAnalyzer {
 
 	@Override
 	public boolean canAnalyze(Program program) {
-		ByteProvider provider = new MemoryByteProvider( program.getMemory(), program.getAddressFactory().getDefaultAddressSpace());
+		ByteProvider provider =
+			MemoryByteProvider.createDefaultAddressSpaceByteProvider(program, false);
 		BinaryReader reader = new BinaryReader(provider, true);
 		int start = getSuperBlockStart(reader);
 		if( start == -1 ) {
@@ -78,7 +78,8 @@ public class Ext4Analyzer extends FileFormatAnalyzer {
 	@Override
 	public boolean analyze(Program program, AddressSetView set,
 			TaskMonitor monitor, MessageLog log) throws Exception {
-		ByteProvider provider = new MemoryByteProvider( program.getMemory(), program.getAddressFactory().getDefaultAddressSpace());
+		ByteProvider provider =
+			MemoryByteProvider.createDefaultAddressSpaceByteProvider(program, false);
 		BinaryReader reader = new BinaryReader(provider, true);
 		int start = getSuperBlockStart(reader);
 		int groupStart = 0;
@@ -191,27 +192,27 @@ public class Ext4Analyzer extends FileFormatAnalyzer {
 		boolean isDirEntry2 = (superBlock.getS_feature_incompat() & Ext4Constants.INCOMPAT_FILETYPE) != 0;
 		// if uses extents
 		if( (inode.getI_flags() & Ext4Constants.EXT4_EXTENTS_FL) != 0 ) {
-			Ext4IBlock i_block = inode.getI_block();
-			Ext4ExtentHeader header = i_block.getHeader();
-			if( header.getEh_depth() == 0 ) {
-				short numEntries = header.getEh_entries();
-				List<Ext4Extent> entries = i_block.getExtentEntries();
-				for( int i = 0; i < numEntries; i++ ) {
-					Ext4Extent extent = entries.get(i);
-					long offset = extent.getExtentStartBlockNumber() * blockSize;
-					reader.setPointerIndex(offset);
-					Address address = toAddr(program, offset);
-					if( isDirEntry2 ) {
-						while( (reader.getPointerIndex() - offset) < (extent.getEe_len() * blockSize)) {
-							Ext4DirEntry2 dirEnt2 = new Ext4DirEntry2(reader);
-							DataType dataType = dirEnt2.toDataType();
-							createData(program, address, dataType);
-							address = address.add(dataType.getLength());
-						}
-					}
-				}
-					
-			} 
+//			Ext4IBlock i_block = inode.getI_block();
+//			Ext4ExtentHeader header = i_block.getHeader();
+//			if( header.getEh_depth() == 0 ) {
+//				short numEntries = header.getEh_entries();
+//				List<Ext4Extent> entries = i_block.getExtentEntries();
+//				for( int i = 0; i < numEntries; i++ ) {
+//					Ext4Extent extent = entries.get(i);
+//					long offset = extent.getExtentStartBlockNumber() * blockSize;
+//					reader.setPointerIndex(offset);
+//					Address address = toAddr(program, offset);
+//					if( isDirEntry2 ) {
+//						while( (reader.getPointerIndex() - offset) < (extent.getEe_len() * blockSize)) {
+//							Ext4DirEntry2 dirEnt2 = Ext4DirEntry2.read(reader);
+//							DataType dataType = dirEnt2.toDataType();
+//							createData(program, address, dataType);
+//							address = address.add(dataType.getLength());
+//						}
+//					}
+//				}
+//					
+//			} 
 		}
 		
 	}

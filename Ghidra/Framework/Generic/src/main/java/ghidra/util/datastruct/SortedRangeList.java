@@ -1,6 +1,5 @@
 /* ###
  * IP: GHIDRA
- * REVIEWED: YES
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,9 +18,8 @@ package ghidra.util.datastruct;
 import java.util.*;
 
 /**
- * Provides a list of integer ranges that are maintained in sorted order. 
- * When a range is added any ranges that overlap or are adjacent to one another 
- * will coalesce into a single range.
+ * Provides a list of integer ranges that are maintained in sorted order.  When a range is added
+ * any ranges that overlap or are adjacent to one another will coalesce into a single range.
  */
 public class SortedRangeList implements Iterable<Range> {
 	TreeSet<Range> set;
@@ -30,16 +28,15 @@ public class SortedRangeList implements Iterable<Range> {
 	 * Creates a new empty sorted range list.
 	 */
 	public SortedRangeList() {
-		set = new TreeSet<Range>();
+		set = new TreeSet<>();
 	}
 
 	/**
-	 * Creates a new sorted range list with ranges equivalent to those in the 
-	 * specified list.
+	 * Creates a new sorted range list with ranges equivalent to those in the specified list.
 	 * @param list the sorted range list to make an equivalent copy of.
 	 */
 	public SortedRangeList(SortedRangeList list) {
-		set = new TreeSet<Range>();
+		set = new TreeSet<>();
 		Iterator<Range> it = list.set.iterator();
 		while (it.hasNext()) {
 			Range r = it.next();
@@ -48,9 +45,8 @@ public class SortedRangeList implements Iterable<Range> {
 	}
 
 	/**
-	 * Adds the range from min to max to this sorted range list.
-	 * If the range is adjacent to or overlaps any other existing ranges,
-	 * then those ranges will coalesce.
+	 * Adds the range from min to max to this sorted range list.  If the range is adjacent to or
+	 * overlaps any other existing ranges,  then those ranges will coalesce.
 	 * @param min the range minimum
 	 * @param max the range maximum (inclusive)
 	 */
@@ -83,22 +79,25 @@ public class SortedRangeList implements Iterable<Range> {
 
 	/**
 	 * Returns an iterator over all the ranges in this list.
+	 * @return the iterator
 	 */
 	public Iterator<Range> getRanges() {
 		return set.iterator();
 	}
 
 	/**
-	 * Returns an iterator over all the ranges in this list that iterates in the direction specified.
-	 * @param forward true indicates to iterate forward from minimum to maximum range. 
-	 * false indicates backward iteration form maximum to minimum.
+	 * Returns an iterator over all the ranges in this list that iterates in the direction
+	 * specified.
+	 * @param forward true indicates to iterate forward from minimum to maximum range; false
+	 * indicates backward iteration form maximum to minimum.
+	 * @return the iterator
 	 */
 	public Iterator<Range> getRanges(boolean forward) {
 		if (forward) {
 			return set.iterator();
 		}
 		Iterator<Range> it = set.iterator();
-		LinkedList<Range> ll = new LinkedList<Range>();
+		LinkedList<Range> ll = new LinkedList<>();
 		while (it.hasNext()) {
 			ll.addFirst(it.next());
 		}
@@ -107,6 +106,7 @@ public class SortedRangeList implements Iterable<Range> {
 
 	/**
 	 * Returns the minimum int value in this sorted range list.
+	 * @return the min value
 	 * @throws NoSuchElementException if the list is empty.
 	 */
 	public int getMin() throws NoSuchElementException {
@@ -116,6 +116,7 @@ public class SortedRangeList implements Iterable<Range> {
 
 	/**
 	 * Returns the maximum int value in this sorted range list.
+	 * @return the max value
 	 * @throws NoSuchElementException if the list is empty.
 	 */
 	public int getMax() throws NoSuchElementException {
@@ -125,13 +126,14 @@ public class SortedRangeList implements Iterable<Range> {
 
 	/**
 	 * Returns the number of ranges in the list.
+	 * @return the number of ranges
 	 */
 	public int getNumRanges() {
 		return set.size();
 	}
 
 	/**
-	 * Removes the indicated range of values from the list. This will remove 
+	 * Removes the indicated range of values from the list. This will remove
 	 * any ranges or portion of ranges that overlap the indicated range.
 	 * @param min the minimum value for the range to remove.
 	 * @param max the maximum value for the range to remove.
@@ -183,6 +185,7 @@ public class SortedRangeList implements Iterable<Range> {
 	/**
 	 * Returns true if the value is contained in any ranges within this list.
 	 * @param value the value to check for.
+	 * @return true if the value is contained in any ranges within this list.
 	 */
 	public boolean contains(int value) {
 		Range key = new Range(value, value);
@@ -218,6 +221,7 @@ public class SortedRangeList implements Iterable<Range> {
 	 * Returns true if a single range contains all the values from min to max.
 	 * @param min the minimum value
 	 * @param max the maximum value
+	 * @return true if a single range contains all the values from min to max.
 	 */
 	public boolean contains(int min, int max) {
 		Range range = getRangeContaining(min);
@@ -285,9 +289,12 @@ public class SortedRangeList implements Iterable<Range> {
 	}
 
 	/**
-	 * Returns true if the range from min to max intersects (overlaps) any ranges in this sorted range list.
+	 * Returns true if the range from min to max intersects (overlaps) any ranges in this sorted
+	 * range list.
 	 * @param min the range minimum value.
-	 * @param max the range maximum value
+	 * @param max the range maximum value.
+	 * @return true if the range from min to max intersects (overlaps) any ranges in this sorted
+	 * range list.
 	 */
 	public boolean intersects(int min, int max) {
 		Range key = new Range(min, min);
@@ -310,6 +317,7 @@ public class SortedRangeList implements Iterable<Range> {
 
 	/**
 	 * Returns true if the range list is empty.
+	 * @return true if the range list is empty.
 	 */
 	public boolean isEmpty() {
 		return set.isEmpty();
@@ -328,7 +336,8 @@ public class SortedRangeList implements Iterable<Range> {
 	}
 
 	/**
-	 * Creates a new SortedRangeList that is the intersection of this range list and the other range list specified.
+	 * Creates a new SortedRangeList that is the intersection of this range list and the other
+	 * range list specified.
 	 * @param other the other range list
 	 * @return the new SortedRangeList representing the intersection.
 	 */
@@ -340,12 +349,9 @@ public class SortedRangeList implements Iterable<Range> {
 		return srl2;
 	}
 
-	/* (non-Javadoc)
-	 * @see java.lang.Object#toString()
-	 */
 	@Override
 	public String toString() {
-		StringBuffer buf = new StringBuffer();
+		StringBuilder buf = new StringBuilder();
 		Iterator<Range> it = getRanges();
 		if (it.hasNext()) {
 			Range r = it.next();
@@ -362,4 +368,32 @@ public class SortedRangeList implements Iterable<Range> {
 	public Iterator<Range> iterator() {
 		return getRanges(true);
 	}
+
+	public void clear() {
+		set.clear();
+	}
+
+	@Override
+	public int hashCode() {
+		return Objects.hash(set);
+	}
+
+	@Override
+	public boolean equals(Object obj) {
+		if (this == obj) {
+			return true;
+		}
+		if (obj == null) {
+			return false;
+		}
+		if (getClass() != obj.getClass()) {
+			return false;
+		}
+		SortedRangeList other = (SortedRangeList) obj;
+		if (!Objects.equals(set, other.set)) {
+			return false;
+		}
+		return true;
+	}
+
 }

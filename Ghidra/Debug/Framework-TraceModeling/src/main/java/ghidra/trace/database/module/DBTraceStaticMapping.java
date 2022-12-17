@@ -24,14 +24,27 @@ import com.google.common.collect.Range;
 import db.DBRecord;
 import ghidra.program.model.address.*;
 import ghidra.trace.database.DBTraceUtils;
-import ghidra.trace.database.DBTraceUtils.*;
+import ghidra.trace.database.DBTraceUtils.URLDBFieldCodec;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.AddressDBFieldCodec;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.DecodesAddresses;
 import ghidra.trace.model.Trace;
 import ghidra.trace.model.modules.TraceStaticMapping;
 import ghidra.util.LockHold;
 import ghidra.util.database.*;
 import ghidra.util.database.annot.*;
 
-@DBAnnotatedObjectInfo(version = 0)
+/**
+ * The implementation of a stack mapping, directly via a database object
+ *
+ * <p>
+ * Version history:
+ * <ul>
+ * <li>1: Change {@link #traceAddress} to 10-byte fixed encoding</li>
+ * <li>0: Initial version and previous unversioned implementation</li>
+ * </ul>
+ */
+@DBAnnotatedObjectInfo(version = 1)
 public class DBTraceStaticMapping extends DBAnnotatedObject
 		implements TraceStaticMapping, DecodesAddresses {
 	public static final String TABLE_NAME = "StaticMappings";
@@ -73,8 +86,11 @@ public class DBTraceStaticMapping extends DBAnnotatedObject
 	@DBAnnotatedColumn(STATIC_ADDRESS_COLUMN_NAME)
 	static DBObjectColumn STATIC_ADDRESS_COLUMN;
 
-	@DBAnnotatedField(column = TRACE_ADDRESS_COLUMN_NAME, indexed = true, codec = AddressDBFieldCodec.class)
-	private Address traceAddress;
+	@DBAnnotatedField(
+		column = TRACE_ADDRESS_COLUMN_NAME,
+		indexed = true,
+		codec = AddressDBFieldCodec.class)
+	private Address traceAddress = Address.NO_ADDRESS;
 	@DBAnnotatedField(column = LENGTH_COLUMN_NAME)
 	private long length;
 	@DBAnnotatedField(column = START_SNAP_COLUMN_NAME)
@@ -134,8 +150,8 @@ public class DBTraceStaticMapping extends DBAnnotatedObject
 	}
 
 	@Override
-	public Address decodeAddress(int space, long offset) {
-		return manager.trace.getBaseAddressFactory().getAddress(space, offset);
+	public DBTraceOverlaySpaceAdapter getOverlaySpaceAdapter() {
+		return manager.overlayAdapter;
 	}
 
 	@Override

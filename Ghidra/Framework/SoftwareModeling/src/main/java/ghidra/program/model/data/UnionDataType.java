@@ -37,6 +37,8 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 	 * Construct a new empty union with the given name within the
 	 * specified categry path.  An empty union will report its length as 1 and 
 	 * {@link #isNotYetDefined()} will return true.
+	 * NOTE: A constructor form which accepts a {@link DataTypeManager} should be used when possible
+	 * since there may be performance benefits during datatype resolution.
 	 * @param path the category path indicating where this data type is located.
 	 * @param name the name of the new union
 	 */
@@ -82,7 +84,9 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 	}
 
 	/**
-	 * Construct a new UnionDataType
+	 * Construct a new UnionDataType.
+	 * NOTE: A constructor form which accepts a {@link DataTypeManager} should be used when possible
+	 * since there may be performance benefits during datatype resolution.
 	 * @param name the name of this dataType
 	 */
 	public UnionDataType(String name) {
@@ -95,11 +99,6 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 			return "<Empty-Union>";
 		}
 		return "";
-	}
-
-	@Override
-	public boolean isNotYetDefined() {
-		return unionLength == 0 && isDefaultAligned() && !isPackingEnabled();
 	}
 
 	@Override
@@ -167,7 +166,7 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 		return length;
 	}
 
-	DataTypeComponent doAdd(DataType dataType, int length, String componentName, String comment)
+	DataTypeComponentImpl doAdd(DataType dataType, int length, String componentName, String comment)
 			throws IllegalArgumentException {
 
 		dataType = validateDataType(dataType);
@@ -243,7 +242,7 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 	@Override
 	public int getLength() {
 		if (unionLength == 0) {
-			return 1; // 0-length datatype not supported
+			return 1; // positive length required
 		}
 		return unionLength;
 	}
@@ -491,12 +490,11 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 		boolean changed = false;
 		for (DataTypeComponentImpl dtc : components) {
 			if (dtc.getDataType() == dt) {
-				int length = dt.getLength();
-				if (length <= 0) {
-					length = dtc.getLength();
+				int length = DataTypeComponent.usesZeroLengthComponent(dt) ? 0 : dt.getLength();
+				if (length >= 0 && length != dtc.getLength()) {
+					dtc.setLength(length);
+					changed = true;
 				}
-				dtc.setLength(length);
-				changed = true;
 			}
 		}
 		if (changed && !repack(true) && isPackingEnabled()) {
@@ -547,13 +545,16 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 					remove = true;
 				}
 				else {
-					oldDt.removeParent(this);
-					dtc.setDataType(replacementDt);
-					replacementDt.addParent(this);
-					int len = replacementDt.getLength();
-					if (len > 0) {
-						dtc.setLength(len);
+					int len =
+						DataTypeComponent.usesZeroLengthComponent(newDt) ? 0 : newDt.getLength();
+					if (len < 0) {
+						len = dtc.getLength();
 					}
+					oldDt.removeParent(this);
+					dtc.setLength(len);
+					dtc.setDataType(replacementDt); 
+					dtc.invalidateSettings();
+					replacementDt.addParent(this);
 					changed = true;
 				}
 			}
@@ -567,7 +568,7 @@ public class UnionDataType extends CompositeDataTypeImpl implements UnionInterna
 		}
 		if (changed) {
 			repack(false);
-			notifySizeChanged();
+			notifySizeChanged(); // also handles alignment change
 		}
 	}
 

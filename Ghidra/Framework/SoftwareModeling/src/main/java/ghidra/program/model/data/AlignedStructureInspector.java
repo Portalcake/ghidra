@@ -26,8 +26,7 @@ import ghidra.util.exception.DuplicateNameException;
 /**
  * <code>AlignedStructureInspector</code> provides a simple instance of a structure 
  * member container used to perform alignment operations without forcing modification
- * of the actual structure.  A wrapper is not used for the flexible array component
- * which will not be modified by packer.
+ * of the actual structure.
  */
 public class AlignedStructureInspector extends AlignedStructurePacker {
 
@@ -78,11 +77,6 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 		}
 
 		@Override
-		public boolean isFlexibleArrayComponent() {
-			return component.isFlexibleArrayComponent();
-		}
-
-		@Override
 		public boolean isBitFieldComponent() {
 			return component.isBitFieldComponent();
 		}
@@ -120,11 +114,6 @@ public class AlignedStructureInspector extends AlignedStructurePacker {
 		@Override
 		public Settings getDefaultSettings() {
 			return component.getDefaultSettings();
-		}
-
-		@Override
-		public void setDefaultSettings(Settings settings) {
-			throw new UnsupportedOperationException();
 		}
 
 		@Override

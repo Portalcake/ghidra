@@ -18,6 +18,7 @@ package ghidra.app.util.bin.format.elf;
 import java.util.*;
 
 import ghidra.app.cmd.refs.RemoveReferenceCmd;
+import ghidra.app.util.PseudoDisassembler;
 import ghidra.program.disassemble.Disassembler;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
@@ -60,7 +61,7 @@ public class ElfDefaultGotPltMarkup {
 	}
 
 	public void process(TaskMonitor monitor) throws CancelledException {
-		if (elf.e_shnum() == 0) {
+		if (elf.getSectionHeaderCount() == 0) {
 			processDynamicPLTGOT(ElfDynamicType.DT_PLTGOT, ElfDynamicType.DT_JMPREL, monitor);
 		}
 		else {
@@ -142,7 +143,7 @@ public class ElfDefaultGotPltMarkup {
 
 			ElfProgramHeader relocTableLoadHeader =
 				elf.getProgramLoadHeaderContaining(relocTableAddr);
-			if (relocTableLoadHeader == null || relocTableLoadHeader.getOffset() < 0) {
+			if (relocTableLoadHeader == null || relocTableLoadHeader.isInvalidOffset()) {
 				return;
 			}
 			long relocTableOffset = relocTableLoadHeader.getOffset(relocTableAddr);
@@ -234,7 +235,7 @@ public class ElfDefaultGotPltMarkup {
 			long symbolSearchSpacing; // nominal PLT entry size for computing maxSymbolSearchAddress
 
 			Address firstPltEntryAddr = null; // may be offcut within first PLT entry
-			
+
 			if (pltSpacing == 0) { // Entries have same original bytes which refer to PLT head
 				Function pltHeadFunc = elfLoadHelper.createOneByteFunction(null, pltAddr1, false);
 				if (pltHeadFunc.getSymbol().getSource() == SourceType.DEFAULT) {
@@ -378,9 +379,11 @@ public class ElfDefaultGotPltMarkup {
 					// TODO: record artificial relative relocation for reversion/export concerns
 					entry1Value += imageBaseAdj; // adjust first entry value
 					if (elf.is64Bit()) {
+						elfLoadHelper.addFakeRelocTableEntry(gotStart, 8);
 						memory.setLong(gotStart, entry1Value);
 					}
 					else {
+						elfLoadHelper.addFakeRelocTableEntry(gotStart, 4);
 						memory.setInt(gotStart, (int) entry1Value);
 					}
 				}
@@ -470,10 +473,13 @@ public class ElfDefaultGotPltMarkup {
 			TaskMonitor monitor) throws CancelledException {
 
 		try {
-			// Disassemble section.  
+			// Disassemble PLT section.  
 			// Disassembly is only done so we can see all instructions since many
-			// of them are unreachable after applying relocations
-			disassemble(minAddress, maxAddress, program, monitor);
+			// of them are unreachable after applying relocations.  Avoid disassembly
+			// when alternate instruction sets exist.
+			if (!PseudoDisassembler.hasLowBitCodeModeInAddrValues(program)) {
+				disassemble(minAddress, maxAddress, program, monitor);
+			}
 
 			// Any symbols in the linkage section should be converted to External function thunks 
 			// This can be seen with ARM Android examples.
@@ -537,8 +543,9 @@ public class ElfDefaultGotPltMarkup {
 				// Stop on first error but discard error bookmark since
 				// some plt sections are partly empty and must rely
 				// on normal flow disassembly during analysis
-				prog.getBookmarkManager().removeBookmarks(set, BookmarkType.ERROR,
-					Disassembler.ERROR_BOOKMARK_CATEGORY, monitor);
+				prog.getBookmarkManager()
+						.removeBookmarks(set, BookmarkType.ERROR,
+							Disassembler.ERROR_BOOKMARK_CATEGORY, monitor);
 				break;//we did not disassemble anything...
 			}
 			set.delete(disset);
@@ -582,6 +589,9 @@ public class ElfDefaultGotPltMarkup {
 	 * @param data program data
 	 */
 	public static void setConstant(Data data) {
+		if (data == null) {
+			return;
+		}
 		Memory memory = data.getProgram().getMemory();
 		MemoryBlock block = memory.getBlock(data.getAddress());
 		if (!block.isWrite() || block.getName().startsWith(ElfSectionHeaderConstants.dot_got)) {
@@ -604,11 +614,8 @@ public class ElfDefaultGotPltMarkup {
 		if (memory.contains(refAddr)) {
 			return true;
 		}
-		Symbol syms[] = program.getSymbolTable().getSymbols(refAddr);
-		if (syms != null && syms.length > 0 && syms[0].getSource() != SourceType.DEFAULT) {
-			return true;
-		}
-		return false;
+		Symbol primary = program.getSymbolTable().getPrimarySymbol(refAddr);
+		return primary != null && primary.getSource() != SourceType.DEFAULT;
 	}
 
 	private void removeMemRefs(Data data) {
@@ -656,7 +663,7 @@ public class ElfDefaultGotPltMarkup {
 		if (program.getImageBase().getOffset() != 0) {
 			return null;
 		}
-		if (program.getRelocationTable().getRelocation(data.getAddress()) != null) {
+		if (program.getRelocationTable().hasRelocation(data.getAddress())) {
 			return null;
 		}
 		MemoryBlock tBlock = memory.getBlock(".text");

@@ -16,7 +16,8 @@
 package ghidra.app.util.bin.format.dwarf4;
 
 import static ghidra.app.util.bin.format.dwarf4.encoding.DWARFAttribute.*;
-import static ghidra.app.util.bin.format.dwarf4.encoding.DWARFEncoding.*;
+import static ghidra.app.util.bin.format.dwarf4.encoding.DWARFEncoding.DW_ATE_float;
+import static ghidra.app.util.bin.format.dwarf4.encoding.DWARFEncoding.DW_ATE_signed;
 import static ghidra.app.util.bin.format.dwarf4.encoding.DWARFTag.*;
 import static org.junit.Assert.*;
 
@@ -36,8 +37,7 @@ import ghidra.program.database.ProgramDB;
 import ghidra.program.database.data.DataTypeManagerDB;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSpace;
-import ghidra.program.model.data.CategoryPath;
-import ghidra.program.model.data.DataTypeManager;
+import ghidra.program.model.data.*;
 import ghidra.test.AbstractGhidraHeadedIntegrationTest;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
@@ -62,7 +62,8 @@ public class DWARFTestBase extends AbstractGhidraHeadedIntegrationTest {
 	protected MockDWARFCompilationUnit cu;
 	protected MockDWARFCompilationUnit cu2;
 	protected DWARFDataTypeManager dwarfDTM;
-	protected CategoryPath rootCP;
+	protected CategoryPath uncatCP;
+	protected CategoryPath dwarfRootCP;
 
 	/*
 	 * @see TestCase#setUp()
@@ -86,7 +87,8 @@ public class DWARFTestBase extends AbstractGhidraHeadedIntegrationTest {
 		importOptions = new DWARFImportOptions();
 		dwarfProg =
 			new DWARFProgram(program, importOptions, TaskMonitor.DUMMY, new NullSectionProvider());
-		rootCP = dwarfProg.getUncategorizedRootDNI().asCategoryPath();
+		dwarfRootCP = dwarfProg.getRootDNI().asCategoryPath();
+		uncatCP = dwarfProg.getUncategorizedRootDNI().asCategoryPath();
 
 		cu = new MockDWARFCompilationUnit(dwarfProg, 0x1000, 0x2000, 0,
 			DWARFCompilationUnit.DWARF_32, (short) 4, 0, (byte) 8, 0,
@@ -355,5 +357,23 @@ public class DWARFTestBase extends AbstractGhidraHeadedIntegrationTest {
 
 	protected Address addr(long l) {
 		return space.getAddress(l);
+	}
+
+	protected void assertHasFlexArray(Structure struct) {
+		DataTypeComponent component = struct.getComponent(struct.getNumComponents() - 1);
+		assertNotNull(component);
+		assertEquals(0, component.getLength());
+		DataType dt = component.getDataType();
+		assertTrue(dt instanceof Array);
+		Array a = (Array) dt;
+		assertEquals(0, a.getNumElements());
+	}
+
+	protected void assertMissingFlexArray(Structure struct) {
+		DataTypeComponent component = struct.getComponent(struct.getNumComponents() - 1);
+		if (component == null) {
+			return;
+		}
+		assertNotEquals(0, component.getLength());
 	}
 }

@@ -82,11 +82,6 @@ class UnionDB extends CompositeDB implements UnionInternal {
 	}
 
 	@Override
-	public boolean isNotYetDefined() {
-		return components.size() == 0;
-	}
-
-	@Override
 	public DataTypeComponent add(DataType dataType, int length, String componentName,
 			String comment) throws IllegalArgumentException {
 		lock.acquire();
@@ -166,6 +161,7 @@ class UnionDB extends CompositeDB implements UnionInternal {
 	private void removeComponent(long compKey) {
 		try {
 			componentAdapter.removeRecord(compKey);
+			dataMgr.getSettingsAdapter().removeAllSettingsRecords(compKey);
 		}
 		catch (IOException e) {
 			dataMgr.dbError(e);
@@ -348,7 +344,7 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			doAdd(resolvedDts[i], dtc.getLength(), dtc.getFieldName(), dtc.getComment(), false);
 		}
 
-		repack(false, false);
+		repack(false, false); // updates timestamp
 
 		if (notify) {
 			notifySizeChanged(false); // assume size and/or alignment changed
@@ -444,6 +440,9 @@ class UnionDB extends CompositeDB implements UnionInternal {
 
 	@Override
 	public Union clone(DataTypeManager dtm) {
+		if (dtm == getDataTypeManager()) {
+			return this;
+		}
 		UnionDataType union = new UnionDataType(getCategoryPath(), getName(), getUniversalID(),
 			getSourceArchive(), getLastChangeTime(), getLastChangeTimeInSourceArchive(), dtm);
 		union.setDescription(getDescription());
@@ -462,7 +461,7 @@ class UnionDB extends CompositeDB implements UnionInternal {
 		try {
 			checkIsValid();
 			if (unionLength == 0) {
-				return 1; // lie about our length
+				return 1; // positive length required
 			}
 			return unionLength;
 		}
@@ -482,15 +481,17 @@ class UnionDB extends CompositeDB implements UnionInternal {
 		boolean changed = false;
 		for (DataTypeComponentDB dtc : components) {
 			DataType dt = dtc.getDataType();
+			if (dt instanceof Dynamic) {
+				continue; // length can't change
+			}
 			if (dt instanceof BitFieldDataType) {
 				dt = adjustBitField(dt); // in case base type changed
 			}
-			int dtcLen = dtc.getLength();
-			int length = dt.getLength();
-			if (length <= 0) {
-				length = dtcLen;
+			int length = DataTypeComponent.usesZeroLengthComponent(dt) ? 0 : dt.getLength();
+			if (length < 0) {
+				continue; // illegal condition - skip
 			}
-			if (length != dtcLen) {
+			if (length != dtc.getLength()) {
 				dtc.setLength(length, true);
 				changed = true;
 			}
@@ -534,12 +535,11 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			boolean changed = false;
 			for (DataTypeComponentDB dtc : components) {
 				if (dtc.getDataType() == dt) {
-					int length = dt.getLength();
-					if (length <= 0) {
-						length = dtc.getLength();
+					int length = DataTypeComponent.usesZeroLengthComponent(dt) ? 0 : dt.getLength();
+					if (length >= 0 && length != dtc.getLength()) {
+						dtc.setLength(length, true);
+						changed = true;
 					}
-					dtc.setLength(length, true);
-					changed = true;
 				}
 			}
 			if (changed && !repack(true, true)) {
@@ -730,7 +730,7 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			return false;
 		}
 
-		checkIsValid();
+		validate(lock);
 		if (resolving) { // actively resolving children
 			if (dataType.getUniversalID().equals(getUniversalID())) {
 				return true;
@@ -826,13 +826,16 @@ class UnionDB extends CompositeDB implements UnionInternal {
 						remove = true;
 					}
 					else {
-						oldDt.removeParent(this);
-						dtc.setDataType(replacementDt);
-						replacementDt.addParent(this);
-						int len = replacementDt.getLength();
-						if (len > 0) {
-							dtc.setLength(len, true);
+						int len = DataTypeComponent.usesZeroLengthComponent(newDt) ? 0
+								: newDt.getLength();
+						if (len < 0) {
+							len = dtc.getLength();
 						}
+						oldDt.removeParent(this);
+						dtc.setLength(len, false);
+						dtc.setDataType(replacementDt); // updates record
+						dataMgr.getSettingsAdapter().removeAllSettingsRecords(dtc.getKey());
+						replacementDt.addParent(this);
 						changed = true;
 					}
 				}
@@ -844,9 +847,14 @@ class UnionDB extends CompositeDB implements UnionInternal {
 					changed = true;
 				}
 			}
-			if (changed && !repack(false, true)) {
-				dataMgr.dataTypeChanged(this, false);
+			if (changed) {
+				repack(false, false);
+				compositeAdapter.updateRecord(record, true); // update timestamp
+				notifySizeChanged(false); // also handles alignment change
 			}
+		}
+		catch (IOException e) {
+			dataMgr.dbError(e);
 		}
 		finally {
 			lock.release();

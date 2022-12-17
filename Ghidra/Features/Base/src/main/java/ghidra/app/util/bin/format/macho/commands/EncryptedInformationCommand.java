@@ -17,7 +17,7 @@ package ghidra.app.util.bin.format.macho.commands;
 
 import java.io.IOException;
 
-import ghidra.app.util.bin.format.FactoryBundledWithBinaryReader;
+import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachConstants;
 import ghidra.app.util.bin.format.macho.MachHeader;
 import ghidra.app.util.importer.MessageLog;
@@ -29,33 +29,19 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Represents an encryption_info_command structure.
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-4570.71.2/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * Represents an encryption_info_command structure
  */
 public class EncryptedInformationCommand extends LoadCommand {
 	private int cryptoff;
 	private int cryptsize;
 	private int cryptid;
+	
+	private boolean is32bit;
 
-	static EncryptedInformationCommand createEncryptedInformationCommand(
-			FactoryBundledWithBinaryReader reader) throws IOException {
-		EncryptedInformationCommand command =
-			(EncryptedInformationCommand) reader.getFactory().create(
-				EncryptedInformationCommand.class);
-		command.initEncryptedInformationCommand(reader);
-		return command;
-	}
+	EncryptedInformationCommand(BinaryReader reader, boolean is32bit) throws IOException {
+		super(reader);
+		this.is32bit = is32bit;
 
-	/**
-	 * DO NOT USE THIS CONSTRUCTOR, USE create*(GenericFactory ...) FACTORY METHODS INSTEAD.
-	 */
-	public EncryptedInformationCommand() {
-	}
-
-	private void initEncryptedInformationCommand(FactoryBundledWithBinaryReader reader)
-			throws IOException {
-		initLoadCommand(reader);
 		cryptoff = reader.readNextInt();
 		cryptsize = reader.readNextInt();
 		cryptid = reader.readNextInt();
@@ -102,6 +88,9 @@ public class EncryptedInformationCommand extends LoadCommand {
 		struct.add(DWORD, "cryptoff", null);
 		struct.add(DWORD, "cryptsize", null);
 		struct.add(DWORD, "cryptid", null);
+		if (!is32bit) {
+			struct.add(DWORD, "pad", null);
+		}
 		struct.setCategoryPath(new CategoryPath(MachConstants.DATA_TYPE_CATEGORY));
 		return struct;
 	}

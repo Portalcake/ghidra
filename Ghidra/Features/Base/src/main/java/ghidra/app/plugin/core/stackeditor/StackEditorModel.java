@@ -22,7 +22,6 @@ import javax.swing.JOptionPane;
 import docking.widgets.OptionDialog;
 import docking.widgets.fieldpanel.support.FieldRange;
 import docking.widgets.fieldpanel.support.FieldSelection;
-
 /**
  * Function stack editor model for maintaining information about the edits to
  * a function stack frame. Updates the stack frame with the edit changes.
@@ -33,7 +32,6 @@ import docking.widgets.fieldpanel.support.FieldSelection;
  * When edit actions occur and there is a selection, the listener's are notified
  * of the new selection via the listener's overrideSelection method.
  */
-
 import ghidra.app.plugin.core.compositeeditor.CompositeEditorModel;
 import ghidra.app.plugin.core.compositeeditor.DataTypeHelper;
 import ghidra.app.util.datatype.EmptyCompositeException;
@@ -46,7 +44,7 @@ import ghidra.util.*;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
-class StackEditorModel extends CompositeEditorModel {
+public class StackEditorModel extends CompositeEditorModel {
 
 	private static final long serialVersionUID = 1L;
 	public static final int OFFSET = 0;
@@ -79,7 +77,17 @@ class StackEditorModel extends CompositeEditorModel {
 		}
 	}
 
-	void stackChangedExcternally(boolean changed) {
+	@Override
+	protected boolean allowsZeroLengthComponents() {
+		return false;
+	}
+
+	@Override
+	protected boolean allowsBitFields() {
+		return false;
+	}
+
+	void stackChangedExternally(boolean changed) {
 		stackChangedExternally = changed;
 	}
 
@@ -87,13 +95,17 @@ class StackEditorModel extends CompositeEditorModel {
 		originalStack = function.getStackFrame();
 		StackFrameDataType stackFrameDataType = new StackFrameDataType(originalStack, dtm);
 		stackFrameDataType.setCategoryPath(dtm.getRootCategory().getCategoryPath());
-		load(stackFrameDataType, false);
+		load(stackFrameDataType);
 	}
 
 	@Override
-	public void load(Composite dataType, boolean useOffLineCategory) {
-		stackChangedExcternally(false);
-		super.load(dataType, useOffLineCategory);
+	public void load(Composite dataType) {
+		stackChangedExternally(false);
+		super.load(dataType);
+	}
+
+	protected Composite createViewCompositeFromOriginalComposite(Composite original) {
+		return (Composite) original.copy(original.getDataTypeManager());
 	}
 
 	StackFrameDataType getViewComposite() {
@@ -612,7 +624,7 @@ class StackEditorModel extends CompositeEditorModel {
 			if (currentIndex < 0 || currentIndex >= getRowCount()) {
 				return false;
 			}
-			checkIsAllowableDataType(dataType, true);
+			checkIsAllowableDataType(dataType);
 		}
 		catch (InvalidDataTypeException e) {
 			return false;
@@ -720,7 +732,7 @@ class StackEditorModel extends CompositeEditorModel {
 			if (currentIndex < 0 || currentIndex >= getRowCount()) {
 				return false;
 			}
-			checkIsAllowableDataType(dataType, true);
+			checkIsAllowableDataType(dataType);
 		}
 		catch (InvalidDataTypeException e) {
 			return false;
@@ -788,10 +800,9 @@ class StackEditorModel extends CompositeEditorModel {
 	}
 
 	@Override
-	public void setComponentDataTypeInstance(int index, DataTypeInstance dti) throws UsrException {
-		DataType dt = dti.getDataType();
-		checkIsAllowableDataType(dt, true);
-		((StackFrameDataType) viewComposite).setDataType(index, dt, dti.getLength());
+	public void setComponentDataTypeInstance(int index, DataType dt, int length) throws UsrException {
+		checkIsAllowableDataType(dt);
+		((StackFrameDataType) viewComposite).setDataType(index, dt, length);
 	}
 
 	@Override
@@ -806,7 +817,7 @@ class StackEditorModel extends CompositeEditorModel {
 	public void setComponentName(int rowIndex, String newName)
 			throws InvalidInputException, InvalidNameException, DuplicateNameException {
 
-		if (newName.equals("")) {
+		if (newName.trim().length() == 0) {
 			newName = null;
 		}
 //		if (nameExistsElsewhere(newName, currentIndex)) {
@@ -1014,7 +1025,7 @@ class StackEditorModel extends CompositeEditorModel {
 					newSv.setComment(comment);
 				}
 			}
-			load(new StackFrameDataType(original, dtm), false);
+			load(new StackFrameDataType(original, dtm));
 			clearStatus();
 			return true;
 		}
@@ -1174,7 +1185,6 @@ class StackEditorModel extends CompositeEditorModel {
 			originalDataTypePath.getDataTypeName().equals(newPath.getDataTypeName()) &&
 			originalDataTypePath.getCategoryPath().equals(oldPath.getCategoryPath())) {
 			originalDataTypePath = newPath;
-			originalCategoryChanged();
 			compositeInfoChanged();
 		}
 	}
@@ -1232,7 +1242,7 @@ class StackEditorModel extends CompositeEditorModel {
 	@Override
 	protected Composite getOriginalComposite() {
 		// This is to allow the stack editor panel to have access.
-		return super.getOriginalComposite();
+		return originalComposite; // not contained within datatype manager
 	}
 
 	@Override
@@ -1330,7 +1340,7 @@ class StackEditorModel extends CompositeEditorModel {
 
 		int newLength = newDt.getLength();
 
-		checkIsAllowableDataType(newDt, true);
+		checkIsAllowableDataType(newDt);
 		newDt = DataTypeHelper.resolveDataType(newDt, viewDTM, null);
 		int maxLength = getMaxReplaceLength(index);
 		if (newLength <= 0) {

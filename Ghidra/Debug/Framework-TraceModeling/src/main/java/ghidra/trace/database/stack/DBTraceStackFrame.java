@@ -18,11 +18,14 @@ package ghidra.trace.database.stack;
 import java.io.IOException;
 import java.util.Objects;
 
+import com.google.common.collect.Range;
+
 import db.DBRecord;
 import ghidra.lifecycle.Internal;
 import ghidra.program.model.address.Address;
-import ghidra.trace.database.DBTraceUtils.AddressDBFieldCodec;
-import ghidra.trace.database.DBTraceUtils.DecodesAddresses;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.AddressDBFieldCodec;
+import ghidra.trace.database.address.DBTraceOverlaySpaceAdapter.DecodesAddresses;
 import ghidra.trace.model.Trace.TraceStackChangeType;
 import ghidra.trace.model.stack.TraceStackFrame;
 import ghidra.trace.util.TraceChangeRecord;
@@ -30,7 +33,17 @@ import ghidra.util.LockHold;
 import ghidra.util.database.*;
 import ghidra.util.database.annot.*;
 
-@DBAnnotatedObjectInfo(version = 0)
+/**
+ * The implementation of a stack frame, directly via a database object
+ * 
+ * <p>
+ * Version history:
+ * <ul>
+ * <li>1: Change {@link #pc} to 10-byte fixed encoding, make it sparse, so optional</li>
+ * <li>0: Initial version and previous unversioned implementations</li>
+ * </ul>
+ */
+@DBAnnotatedObjectInfo(version = 1)
 public class DBTraceStackFrame extends DBAnnotatedObject
 		implements TraceStackFrame, DecodesAddresses {
 	public static final String TABLE_NAME = "StackFrames";
@@ -53,7 +66,11 @@ public class DBTraceStackFrame extends DBAnnotatedObject
 	private long stackKey;
 	@DBAnnotatedField(column = LEVEL_COLUMN_NAME)
 	private int level;
-	@DBAnnotatedField(column = PC_COLUMN_NAME, indexed = true, codec = AddressDBFieldCodec.class)
+	@DBAnnotatedField(
+		column = PC_COLUMN_NAME,
+		indexed = true,
+		codec = AddressDBFieldCodec.class,
+		sparse = true)
 	private Address pc;
 	@DBAnnotatedField(column = COMMENT_COLUMN_NAME)
 	private String comment;
@@ -69,8 +86,8 @@ public class DBTraceStackFrame extends DBAnnotatedObject
 	}
 
 	@Override
-	public Address decodeAddress(int space, long offset) {
-		return manager.trace.getBaseAddressFactory().getAddress(space, offset);
+	public DBTraceOverlaySpaceAdapter getOverlaySpaceAdapter() {
+		return manager.overlayAdapter;
 	}
 
 	@Override
@@ -97,12 +114,12 @@ public class DBTraceStackFrame extends DBAnnotatedObject
 	}
 
 	@Override
-	public Address getProgramCounter() {
+	public Address getProgramCounter(long snap) {
 		return pc;
 	}
 
 	@Override
-	public void setProgramCounter(Address pc) {
+	public void setProgramCounter(Range<Long> span, Address pc) {
 		//System.err.println("setPC(threadKey=" + stack.getThread().getKey() + ",snap=" +
 		//	stack.getSnap() + ",level=" + level + ",pc=" + pc + ");");
 		manager.trace.assertValidAddress(pc);
@@ -114,22 +131,24 @@ public class DBTraceStackFrame extends DBAnnotatedObject
 			update(PC_COLUMN);
 		}
 		manager.trace.setChanged(
-			new TraceChangeRecord<>(TraceStackChangeType.CHANGED, null, stack));
+			new TraceChangeRecord<>(TraceStackChangeType.CHANGED, null, stack, 0L,
+				stack.getSnap()));
 	}
 
 	@Override
-	public String getComment() {
+	public String getComment(long snap) {
 		return comment;
 	}
 
 	@Override
-	public void setComment(String comment) {
+	public void setComment(long snap, String comment) {
 		try (LockHold hold = LockHold.lock(manager.lock.writeLock())) {
 			this.comment = comment;
 			update(COMMENT_COLUMN);
 		}
 		manager.trace.setChanged(
-			new TraceChangeRecord<>(TraceStackChangeType.CHANGED, null, stack));
+			new TraceChangeRecord<>(TraceStackChangeType.CHANGED, null, stack, 0L,
+				stack.getSnap()));
 	}
 
 	@Internal

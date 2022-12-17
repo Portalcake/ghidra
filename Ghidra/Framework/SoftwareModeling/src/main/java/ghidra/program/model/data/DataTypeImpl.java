@@ -19,19 +19,23 @@ import java.lang.ref.WeakReference;
 import java.util.*;
 import java.util.function.Consumer;
 
-import javax.swing.event.ChangeEvent;
-import javax.swing.event.ChangeListener;
-
 import ghidra.docking.settings.*;
 import ghidra.util.*;
 
 /**
  * Base implementation for dataTypes.
+ * 
+ * NOTE: Settings are immutable when a DataTypeManager has not been specified (i.e., null).
  */
-public abstract class DataTypeImpl extends AbstractDataType implements ChangeListener {
+public abstract class DataTypeImpl extends AbstractDataType {
 
 	private final static SettingsDefinition[] EMPTY_DEFINITIONS = new SettingsDefinition[0];
+
+	// NOTE: Modification of default settings on Impl datatypes is generally blocked
+	// with the exception of TypeDef's and BuiltInDataType which have had a suitable
+	// defaultSettings implementation established by its DataTypeManager.
 	protected Settings defaultSettings;
+
 	private List<WeakReference<DataType>> parentList;
 	private UniversalID universalID;
 	private SourceArchive sourceArchive;
@@ -46,7 +50,7 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 			SourceArchive sourceArchive, long lastChangeTime, long lastChangeTimeInSourceArchive,
 			DataTypeManager dataMgr) {
 		super(path, name, dataMgr);
-		defaultSettings = new SettingsImpl(this, null);
+		defaultSettings = SettingsImpl.NO_SETTINGS;
 		parentList = new ArrayList<>();
 		this.universalID = universalID == null ? UniversalIdGenerator.nextID() : universalID;
 		this.sourceArchive = sourceArchive;
@@ -80,16 +84,6 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 		if (!DataUtilities.isValidDataTypeName(checkedName)) {
 			throw new InvalidNameException("Invalid Name: " + checkedName);
 		}
-	}
-
-	@Override
-	public void stateChanged(ChangeEvent e) {
-		// don't care
-	}
-
-	@Override
-	public void setDefaultSettings(Settings settings) {
-		defaultSettings = settings;
 	}
 
 	@Override
@@ -128,7 +122,7 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 	}
 
 	@Override
-	public DataType[] getParents() {
+	public Collection<DataType> getParents() {
 		List<DataType> parents = new ArrayList<>();
 		Iterator<WeakReference<DataType>> iterator = parentList.iterator();
 		while (iterator.hasNext()) {
@@ -141,8 +135,7 @@ public abstract class DataTypeImpl extends AbstractDataType implements ChangeLis
 				parents.add(dataType);
 			}
 		}
-		DataType[] array = new DataType[parents.size()];
-		return parents.toArray(array);
+		return parents;
 	}
 
 	/**

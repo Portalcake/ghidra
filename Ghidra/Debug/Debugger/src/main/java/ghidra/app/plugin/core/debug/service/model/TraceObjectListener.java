@@ -47,8 +47,8 @@ public class TraceObjectListener implements DebuggerModelListener {
 			recorder.privateQueue, reorderer);
 	}
 
-	public void init() {
-		findInitialObjects(target).thenAccept(adds -> {
+	public CompletableFuture<Void> init() {
+		return findInitialObjects(target).thenAccept(adds -> {
 			for (TargetObject added : adds) {
 				processInit(added);
 			}
@@ -218,6 +218,10 @@ public class TraceObjectListener implements DebuggerModelListener {
 	public void dispose() {
 		target.getModel().removeModelListener(reorderer);
 		reorderer.dispose();
+	}
+
+	public CompletableFuture<Void> flushEvents() {
+		return reorderer.flushEvents();
 	}
 
 	/*

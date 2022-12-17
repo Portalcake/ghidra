@@ -19,6 +19,8 @@ import java.io.IOException;
 import java.util.*;
 import java.util.function.Predicate;
 
+import org.apache.commons.lang3.StringUtils;
+
 import db.*;
 import generic.FilteredIterator;
 import ghidra.program.database.DBObjectCache;
@@ -31,7 +33,6 @@ import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.PropertyMapManager;
@@ -272,23 +273,23 @@ public class FunctionManagerDB implements FunctionManager {
 	/**
 	 * Transform an existing external symbol into an external function.
 	 * This method should only be invoked by an ExternalSymbol
-	 * @param extSpaceAddr the external space address to use when creating this external.
-	 * @param name
-	 * @param nameSpace
-	 * @param extData3 internal symbol-data-3 string (see {@link ExternalLocationDB})
+	 * @param extSpaceAddr the external space address to use when creating this external.  Any 
+	 * other symbol using this address must first be deleted.  Results are unpredictable if this is 
+	 * not done.
+	 * @param name the external function name
+	 * @param nameSpace the external function namespace
+	 * @param extData the external data string to store additional info (see {@link ExternalLocationDB})
 	 * @param source the source of this external.
 	 * @return external function
-	 * @throws InvalidInputException
-	 * @throws DuplicateNameException
+	 * @throws InvalidInputException if the name is invalid
 	 */
 	public Function createExternalFunction(Address extSpaceAddr, String name, Namespace nameSpace,
-			String extData3, SourceType source)
-			throws DuplicateNameException, InvalidInputException {
+			String extData, SourceType source)
+			throws InvalidInputException {
 		lock.acquire();
 		try {
-
-			Symbol symbol = symbolMgr.createSpecialSymbol(extSpaceAddr, name, nameSpace,
-				SymbolType.FUNCTION, -1, -1, extData3, source);
+			Symbol symbol =
+				symbolMgr.createFunctionSymbol(extSpaceAddr, name, nameSpace, source, extData);
 
 			long returnDataTypeId = program.getDataTypeManager().getResolvedID(DataType.DEFAULT);
 
@@ -348,8 +349,7 @@ public class FunctionManagerDB implements FunctionManager {
 			if (body == null || !body.contains(entryPoint)) {
 				throw new IllegalArgumentException("Function body must contain the entrypoint");
 			}
-			if (codeMgr.getDefinedDataAt(entryPoint) != null &&
-				!MemoryBlock.isExternalBlockAddress(entryPoint, program)) {
+			if (codeMgr.getDefinedDataAt(entryPoint) != null) {
 				throw new IllegalArgumentException(
 					"Function entryPoint may not be created on defined data");
 			}
@@ -358,7 +358,7 @@ public class FunctionManagerDB implements FunctionManager {
 				throw new OverlappingFunctionException(entryPoint);
 			}
 
-			if (name == null || name.length() == 0 ||
+			if (StringUtils.isBlank(name) ||
 				SymbolUtilities.isReservedDynamicLabelName(name, program.getAddressFactory())) {
 				source = SourceType.DEFAULT;
 				name = "";

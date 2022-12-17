@@ -32,6 +32,7 @@ import org.junit.*;
 import docking.*;
 import docking.action.*;
 import docking.dnd.GClipboard;
+import docking.widgets.EventTrigger;
 import docking.widgets.OptionDialog;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.fieldpanel.support.FieldSelection;
@@ -65,8 +66,7 @@ import ghidra.util.Msg;
 
 /**
  *
- * 			Note: This test is sensitive to focus. So, don't click any windows while this test
- *                is running.
+ * Note: This test is sensitive to focus. So, don't click any windows while this test is running.
  *
  */
 
@@ -435,7 +435,7 @@ public class ClipboardPluginTest extends AbstractGhidraHeadedIntegrationTest {
 		String operandPrefix = "dword ptr [EBP + ";
 		String operandReferenceName = "destStr]";
 		OperandFieldLocation variableOperandReferenceLocation = new OperandFieldLocation(program,
-			addr("0100416c"), null, addr("0x8"), operandPrefix + operandReferenceName, 1, 9);
+			addr("0100416c"), null, addr("0x8"), operandPrefix + operandReferenceName, 0, 9);
 		codeBrowserPlugin.goTo(variableOperandReferenceLocation);
 
 		DockingAction pasteAction = getAction(codeBrowserClipboardProvider, PASTE_ACTION_NAME);
@@ -1551,8 +1551,8 @@ public class ClipboardPluginTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	/*
-	 * We remove the FieldPanel focus listeners for these tests, as when they lose focus, 
-	 * the selection mechanism does not work as expected.  Focus changes can happen 
+	 * We remove the FieldPanel focus listeners for these tests, as when they lose focus,
+	 * the selection mechanism does not work as expected.  Focus changes can happen
 	 * indeterminately during parallel batch testing.
 	 */
 	private void removeFieldPanelFocusListeners(Container c) {
@@ -1691,7 +1691,8 @@ public class ClipboardPluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 		@Override
 		public void clearSelection() {
-			runSwing(() -> provider.programSelectionChanged(new ProgramSelection()));
+			runSwing(() -> provider.programSelectionChanged(new ProgramSelection(),
+				EventTrigger.GUI_ACTION));
 		}
 	}
 

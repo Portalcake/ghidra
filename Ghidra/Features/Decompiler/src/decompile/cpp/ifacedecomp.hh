@@ -19,11 +19,11 @@
 #ifndef __IFACE_DECOMP__
 #define __IFACE_DECOMP__
 
-#include "ifaceterm.hh"
 #include "graph.hh"
 #include "grammar.hh"
 #include "callgraph.hh"
 #include "paramid.hh"
+#include "testfunction.hh"
 #ifdef CPUI_RULECOMPILE
 #include "rulecompile.hh"
 #endif
@@ -44,10 +44,7 @@ public:
   Funcdata *fd;		///< Current function active in the console
   Architecture *conf;	///< Current architecture/program active in the console
   CallGraph *cgraph;	///< Call-graph information for the program
-
-  map<Funcdata*,PrototypePieces> prototypePieces;
-  void storePrototypePieces( Funcdata *fd_in, PrototypePieces pp_in ) { prototypePieces.insert(pair<Funcdata*,PrototypePieces>(fd_in,pp_in)); }
-  PrototypePieces findPrototypePieces( Funcdata *fd_in ) { return (*prototypePieces.find(fd_in)).second; }
+  FunctionTestCollection *testCollection;		///< Executable environment from a datatest
 
 #ifdef CPUI_RULECOMPILE
   string experimental_file;	// File containing experimental rules
@@ -62,6 +59,7 @@ public:
   void clearArchitecture(void);		///< Free all resources for the current architecture/program
   void followFlow(ostream &s,int4 size);
   Varnode *readVarnode(istream &s);	///< Read a varnode from the given stream
+  void readSymbol(const string &name,vector<Symbol *> &res);	///< Find a symbol by name
 };
 
 /// \brief Disassembly emitter that prints to a console stream
@@ -179,6 +177,11 @@ public:
 };
 
 class IfcMapconvert : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcMapunionfacet : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -355,12 +358,12 @@ public:
   virtual void execute(istream &s);
 };
 
-class IfcForceHex : public IfaceDecompCommand {
+class IfcForceFormat : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
 
-class IfcForceDec : public IfaceDecompCommand {
+class IfcForceDatatypeFormat : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };
@@ -528,6 +531,11 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcFixupApply : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 class IfcCountPcode : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
@@ -553,6 +561,11 @@ public:
   virtual void execute(istream &s);
 };
 
+class IfcPointerSetting : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
 class IfcPreferSplit : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
@@ -564,6 +577,21 @@ public:
 };
 
 class IfcAnalyzeRange : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcLoadTestFile : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcListTestCommands : public IfaceDecompCommand {
+public:
+  virtual void execute(istream &s);
+};
+
+class IfcExecuteTestCommand : public IfaceDecompCommand {
 public:
   virtual void execute(istream &s);
 };

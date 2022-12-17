@@ -15,15 +15,14 @@
  */
 package ghidra.service.graph;
 
+import java.util.List;
+
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.util.HelpLocation;
 import ghidra.util.classfinder.ExtensionPoint;
 import ghidra.util.exception.GraphException;
 import ghidra.util.task.TaskMonitor;
-
-import java.util.Collections;
-import java.util.Map;
 
 /**
  * Basic interface for objects that can display or otherwise consume a generic graph
@@ -41,24 +40,28 @@ public interface GraphDisplayProvider extends ExtensionPoint {
 	 * 
 	 * @param reuseGraph if true, this provider will attempt to re-use an existing GraphDisplay
 	 * @param monitor the {@link TaskMonitor} that can be used to monitor and cancel the operation
-	 * @return A GraphDisplay that can be used to display (or otherwise consume - e.g. export) the graph
+	 * @return an object that can be used to display or otherwise consume (e.g., export) the graph
 	 * @throws GraphException thrown if there is a problem creating a GraphDisplay
 	 */
-	public GraphDisplay getGraphDisplay(boolean reuseGraph,	TaskMonitor monitor) throws GraphException;
+	public GraphDisplay getGraphDisplay(boolean reuseGraph, TaskMonitor monitor)
+			throws GraphException;
 
 	/**
-	 * Returns a GraphDisplay that can be used to "display" a graph
-	 *
-	 * @param reuseGraph if true, this provider will attempt to re-use an existing GraphDisplay
-	 * @param properties a {@code Map} of property key/values that can be used to customize the display
-	 * @param monitor the {@link TaskMonitor} that can be used to monitor and cancel the operation
-	 * @return A GraphDisplay that can be used to display (or otherwise consume - e.g. export) the graph
-	 * @throws GraphException thrown if there is a problem creating a GraphDisplay
+	 * Returns the active graph display or null if there is no active graph display.  If only one
+	 * graph is displayed, then that graph will be returned.  If multiple graphs are being
+	 * displayed, then the most recently shown graph will be displayed, regardless of whether that
+	 * is the active graph in terms of user interaction.
+	 * 
+	 * @return the active graph display or null if there is no active graph display.
 	 */
-	default GraphDisplay getGraphDisplay(boolean reuseGraph, Map<String, String> properties,
-										TaskMonitor monitor) throws GraphException {
-		return getGraphDisplay(reuseGraph, monitor);
-	}
+	public GraphDisplay getActiveGraphDisplay();
+
+	/**
+	 * Returns all known graph displays.  Typically they will be ordered by use, most recently
+	 * first.
+	 * @return the displays
+	 */
+	public List<GraphDisplay> getAllGraphDisplays();
 
 	/**
 	 * Provides an opportunity for this provider to register and read tool options

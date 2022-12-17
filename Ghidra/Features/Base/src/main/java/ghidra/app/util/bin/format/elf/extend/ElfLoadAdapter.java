@@ -18,9 +18,9 @@ package ghidra.app.util.bin.format.elf.extend;
 import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
+import ghidra.app.util.Option;
 import ghidra.app.util.bin.format.MemoryLoadable;
 import ghidra.app.util.bin.format.elf.*;
 import ghidra.program.model.address.Address;
@@ -127,6 +127,8 @@ public class ElfLoadAdapter {
 	/**
 	 * Get the preferred load address space for an allocated program segment.
 	 * The OTHER space is reserved and should not be returned by this method.
+	 * This method may only return a physical address space and not an overlay 
+	 * address space.
 	 * @param elfLoadHelper load helper object
 	 * @param elfProgramHeader elf program segment header
 	 * @return preferred load address space
@@ -143,7 +145,9 @@ public class ElfLoadAdapter {
 	}
 
 	/**
-	 * Get the preferred load address for a program segment
+	 * Get the preferred load address for a program segment.
+	 * This method may only return a physical address and not an overlay 
+	 * address.
 	 * @param elfLoadHelper load helper object
 	 * @param elfProgramHeader elf program segment header
 	 * @return preferred load address
@@ -182,6 +186,8 @@ public class ElfLoadAdapter {
 	/**
 	 * Get the preferred load address space for an allocated section.   The OTHER space
 	 * is reserved and should not be returned by this method.
+	 * This method may only return a physical address space and not an overlay 
+	 * address space.
 	 * @param elfLoadHelper load helper object
 	 * @param elfSectionHeader elf section header
 	 * @return preferred load address space
@@ -198,6 +204,8 @@ public class ElfLoadAdapter {
 
 	/**
 	 * Get the preferred load address for an allocated program section.  
+	 * This method may only return a physical address and not an overlay 
+	 * address.
 	 * @param elfLoadHelper load helper object
 	 * @param elfSectionHeader elf program section header
 	 * @return preferred load address
@@ -333,7 +341,7 @@ public class ElfLoadAdapter {
 	 * adjust the address and/or apply context to the intended symbol location.
 	 * @param elfLoadHelper load helper object
 	 * @param elfSymbol elf symbol
-	 * @param address program memory address where symbol will be created
+	 * @param address program memory address where symbol will be created.
 	 * @param isExternal true if symbol treated as external to the program and has been
 	 * assigned a fake memory address in the EXTERNAL memory block.
 	 * @return adjusted symbol address or null if extension will handle applying the elfSymbol
@@ -502,6 +510,15 @@ public class ElfLoadAdapter {
 	 */
 	public Class<? extends ElfRelocation> getRelocationClass(ElfHeader elfHeader) {
 		return null;
+	}
+
+	/**
+	 * Add extension-specific load options
+	 * @param elf ELF header
+	 * @param options list to which load options may be added 
+	 */
+	public void addLoadOptions(ElfHeader elf, List<Option> options) {
+		// no additional options
 	}
 
 }

@@ -95,6 +95,10 @@ public class GdbModelTargetThreadContainer
 			updateUsingThreads(inferior.getKnownThreads());
 			return AsyncUtils.NIL;
 		}
+		return doRefresh();
+	}
+
+	protected CompletableFuture<Void> doRefresh() {
 		return inferior.listThreads().thenAccept(byTID -> {
 			updateUsingThreads(byTID);
 		});
@@ -116,7 +120,9 @@ public class GdbModelTargetThreadContainer
 	protected void invalidateRegisterCaches() {
 		for (GdbThread thread : inferior.getKnownThreads().values()) {
 			GdbModelTargetThread targetThread = (GdbModelTargetThread) impl.getModelObject(thread);
-			targetThread.invalidateRegisterCaches();
+			if (targetThread != null) {
+				targetThread.invalidateRegisterCaches();
+			}
 		}
 	}
 
@@ -143,7 +149,9 @@ public class GdbModelTargetThreadContainer
 		for (GdbThread thread : inferior.getKnownThreads().values()) {
 			GdbModelTargetThread targetThread =
 				(GdbModelTargetThread) impl.getModelObject(thread);
-			fence.include(targetThread.stateChanged(sco));
+			if (targetThread != null) {
+				fence.include(targetThread.stateChanged(sco));
+			}
 		}
 		return fence.ready();
 	}
@@ -172,4 +180,10 @@ public class GdbModelTargetThreadContainer
 		return AsyncUtils.NIL;
 	}
 
+	protected CompletableFuture<?> refreshInternal() {
+		return doRefresh().exceptionally(ex -> {
+			impl.reportError(this, "Problem refreshing inferior's threads", ex);
+			return null;
+		});
+	}
 }

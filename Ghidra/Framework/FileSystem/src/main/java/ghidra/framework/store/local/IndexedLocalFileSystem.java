@@ -81,7 +81,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 
 	/**
 	 * Constructor.
-	 * @param file path path for root directory.
+	 * @param rootPath path path for root directory.
 	 * @param isVersioned if true item versioning will be enabled.
 	 * @param readOnly if true modifications within this file-system will not be allowed
 	 * and result in an ReadOnlyException
@@ -588,6 +588,27 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 			return false;
 		}
 
+		String conflictedItemStorageName = findItemStorageName(parentPath, name);
+
+		String storageName = pfile.getStorageName();
+
+		if (conflictedItemStorageName != null) {
+			try {
+				if (storageName.compareTo(conflictedItemStorageName) <= 0) {
+					conflictedItemStorageName = storageName;
+					return true; // skip conflict orphan
+				}
+
+				// remove conflict orphan from index and, add newer item below
+				deallocateItemStorage(parentPath, name);
+			}
+			finally {
+				Msg.warn(this,
+					"Detected orphaned project file " + conflictedItemStorageName + ": " +
+						getPath(parentPath, name));
+			}
+		}
+
 		indexJournal.open();
 		try {
 			Folder folder = addFolderToIndexIfMissing(parentPath);
@@ -740,7 +761,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 					subfolder.name = name;
 					folder.folders.put(name, subfolder);
 					if (option == GetFolderOption.CREATE_ALL_NOTIFY) {
-						listeners.folderCreated(folder.getPathname(), name);
+						eventManager.folderCreated(folder.getPathname(), name);
 					}
 				}
 				else {
@@ -751,6 +772,26 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 			folder = subfolder;
 		}
 		return folder;
+	}
+
+	/**
+	 * Find an existing storage location name
+	 * @param folderPath
+	 * @param itemName
+	 * @return storage location name or null if one not defined within index
+	 */
+	private String findItemStorageName(String folderPath, String name) {
+		try {
+			Folder folder = getFolder(folderPath, GetFolderOption.READ_ONLY);
+			Item item = folder.items.get(name);
+			if (item != null) {
+				return item.itemStorage.storageName;
+			}
+		}
+		catch (NotFoundException e) {
+			// ignore
+		}
+		return null;
 	}
 
 	/**
@@ -943,7 +984,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 			indexJournal.close();
 		}
 
-		listeners.folderCreated(parentPath, getName(path));
+		eventManager.folderCreated(parentPath, getName(path));
 	}
 
 	/*
@@ -978,7 +1019,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 			indexJournal.close();
 		}
 
-		listeners.folderDeleted(getParentPath(folderPath), getName(folderPath));
+		eventManager.folderDeleted(getParentPath(folderPath), getName(folderPath));
 	}
 
 	void migrateItem(LocalFolderItem item) throws IOException {
@@ -1060,6 +1101,11 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 				newFolder = getFolder(newFolderPath, GetFolderOption.CREATE_ALL_NOTIFY);
 			}
 
+			LocalFolderItem conflictFolderItem = getItem(newFolderPath, newName);
+			if (conflictFolderItem != null) {
+				throw new DuplicateFileException("Item already exists: " + newName);
+			}
+
 			folderItem.moveTo(item.itemStorage.dir, item.itemStorage.storageName, newFolderPath,
 				newName);
 
@@ -1085,10 +1131,10 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 		}
 
 		if (folderPath.equals(newFolderPath)) {
-			listeners.itemRenamed(folderPath, name, newName);
+			eventManager.itemRenamed(folderPath, name, newName);
 		}
 		else {
-			listeners.itemMoved(folderPath, name, newFolderPath, newName);
+			eventManager.itemMoved(folderPath, name, newFolderPath, newName);
 		}
 
 		deleteEmptyVersionedFolders(folderPath);
@@ -1142,7 +1188,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 
 		updateAffectedItemPaths(folder);
 
-		listeners.folderMoved(parentPath, folderName, newParentPath);
+		eventManager.folderMoved(parentPath, folderName, newParentPath);
 		deleteEmptyVersionedFolders(parentPath);
 	}
 
@@ -1198,7 +1244,7 @@ public class IndexedLocalFileSystem extends LocalFileSystem {
 
 		updateAffectedItemPaths(folder);
 
-		listeners.folderRenamed(parentPath, folderName, newFolderName);
+		eventManager.folderRenamed(parentPath, folderName, newFolderName);
 	}
 
 	/*

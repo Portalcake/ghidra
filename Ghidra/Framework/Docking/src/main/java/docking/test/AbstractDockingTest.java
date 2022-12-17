@@ -38,8 +38,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.junit.*;
 
 import docking.*;
-import docking.action.DockingActionIf;
-import docking.action.ToggleDockingActionIf;
+import docking.action.*;
 import docking.actions.DockingToolActions;
 import docking.dnd.GClipboard;
 import docking.framework.DockingApplicationConfiguration;
@@ -105,7 +104,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		// timing issues.
 
 		// Note: this doesn't quite work as intended.  This should be run before each other
-		//       tearDown() method, but junit offers no way to do that.   If you can figure 
+		//       tearDown() method, but junit offers no way to do that.   If you can figure
 		//       out how to make that work, then update this code.
 		ConcurrentTestExceptionHandler.disable();
 	}
@@ -322,7 +321,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	/**
-	 * Check for and display message component text associated with OptionDialog windows 
+	 * Check for and display message component text associated with OptionDialog windows
 	 * @param w any window
 	 * @return the message string if one can be found; <code>null</code> otherwise
 	 */
@@ -754,6 +753,26 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		return provider;
 	}
 
+	/**
+	 * Allows you to find a component provider <b>with the given title</b>.  Most plugins will
+	 * only ever have a single provider.   In those cases, use
+	 * {@link #waitForComponentProvider(Class)}.  This version of that method is to allow you to
+	 * differentiate between multiple instances of a given provider that have different titles.
+	 *
+	 * @param clazz The class of the ComponentProvider to locate
+	 * @param title the title of the component provider
+	 * @return The component provider, or null if one cannot be found
+	 */
+	public static <T extends ComponentProvider> T waitForComponentProvider(Class<T> clazz,
+			String title) {
+
+		DockingWindowManager dwm = findActiveDockingWindowManager();
+		assertNotNull("Unable to find a DockingWindowManager - is there a tool showing?", dwm);
+
+		T provider = doWaitForComponentProvider(dwm, clazz, title);
+		return provider;
+	}
+
 	@SuppressWarnings("unchecked")
 	private static DockingWindowManager findActiveDockingWindowManager() {
 		DockingWindowManager activeInstance = DockingWindowManager.getActiveInstance();
@@ -764,8 +783,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 		// just in case there is a tool, but it is not visible, grab the tool's manager
 		List<DockingWindowManager> managers =
-			(List<DockingWindowManager>) getInstanceField("instanceList",
-				DockingWindowManager.class);
+			(List<DockingWindowManager>) getInstanceField("instances", DockingWindowManager.class);
 		for (int i = managers.size() - 1; i >= 0; i--) {
 			DockingWindowManager m = managers.get(i);
 			String title = m.getRootFrame().getTitle();
@@ -787,6 +805,25 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 			T t = getComponentProvider(windowManager, clazz);
 			if (t != null) {
+				return t;
+			}
+			totalTime += sleep(DEFAULT_WAIT_DELAY);
+		}
+
+		throw new AssertionFailedError(
+			"Timed-out waiting for ComponentProvider of class: " + clazz);
+	}
+
+	private static <T extends ComponentProvider> T doWaitForComponentProvider(
+			DockingWindowManager windowManager, Class<T> clazz, String title) {
+
+		Objects.requireNonNull(windowManager, "DockingWindowManager cannot be null");
+
+		int totalTime = 0;
+		while (totalTime <= DEFAULT_WAIT_TIMEOUT) {
+
+			T t = getComponentProvider(windowManager, clazz);
+			if (Objects.deepEquals(title, t.getTitle())) {
 				return t;
 			}
 			totalTime += sleep(DEFAULT_WAIT_DELAY);
@@ -1083,7 +1120,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	/**
-	 * A helper method to find all actions by name, with the given owner's name (this will not 
+	 * A helper method to find all actions by name, with the given owner's name (this will not
 	 * include reserved system actions)
 	 *
 	 * @param tool the tool containing all system actions
@@ -1096,8 +1133,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		Set<DockingActionIf> ownerActions = tool.getDockingActionsByOwnerName(owner);
 		return ownerActions.stream()
 				.filter(action -> action.getName().equals(name))
-				.collect(
-					Collectors.toSet());
+				.collect(Collectors.toSet());
 	}
 
 	/**
@@ -1127,12 +1163,12 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	/**
-	 * Finds the action by the given owner name and action name.  
-	 * If you do not know the owner name, then use  
+	 * Finds the action by the given owner name and action name.
+	 * If you do not know the owner name, then use
 	 * the call {@link #getActionsByName(Tool, String)} instead  (this will not include
 	 * reserved system actions).
 	 * 
-	 * <P>Note: more specific test case subclasses provide other methods for finding actions 
+	 * <P>Note: more specific test case subclasses provide other methods for finding actions
 	 * when you have an owner name (which is usually the plugin name).
 	 * 
 	 * @param tool the tool containing all system actions
@@ -1485,8 +1521,8 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 		triggerText(c, "\010");
 	}
 
-	/** 
-	 * Simulates the user pressing the 'Enter' key on the given text field 
+	/**
+	 * Simulates the user pressing the 'Enter' key on the given text field
 	 * @param c the component
 	 */
 	public static void triggerEnter(Component c) {
@@ -1678,7 +1714,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 	}
 
 	/**
-	 * Fires a {@link KeyListener#keyPressed(KeyEvent)}, 
+	 * Fires a {@link KeyListener#keyPressed(KeyEvent)},
 	 * {@link KeyListener#keyTyped(KeyEvent)}
 	 * and {@link KeyListener#keyReleased(KeyEvent)} for the given key stroke
 	 * 
@@ -1983,7 +2019,7 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	private static <T> void doWaitForTableModel(ThreadedTableModel<T, ?> model) {
 
-		// Always wait for Swing at least once.  There seems to be a race condition for 
+		// Always wait for Swing at least once.  There seems to be a race condition for
 		// incremental threaded models where the table is not busy at the time this method
 		// is called, but there is an update pending via an invokeLater().
 		waitForSwing();
@@ -2103,6 +2139,11 @@ public abstract class AbstractDockingTest extends AbstractGenericTest {
 
 	public static boolean isEnabled(DockingActionIf action) {
 		return runSwing(() -> action.isEnabledForContext(new ActionContext()));
+	}
+
+	public static boolean isEnabled(DockingActionIf action,
+			ActionContextProvider contextProvider) {
+		return runSwing(() -> action.isEnabledForContext(contextProvider.getActionContext(null)));
 	}
 
 	public static boolean isEnabled(AbstractButton button) {

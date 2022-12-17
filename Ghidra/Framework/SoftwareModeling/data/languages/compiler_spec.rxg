@@ -263,6 +263,13 @@
           </element>
         </zeroOrMore>
 
+		<zeroOrMore>
+		  <element name="modelalias">
+		    <attribute name="name"/>
+		    <attribute name="parent"/>
+		  </element>
+		</zeroOrMore>
+
         <optional>
           <element name="eval_current_prototype">
             <attribute name="name"/>
@@ -284,16 +291,19 @@
     <optional> <attribute name="minsize"/> </optional>
     <optional> <attribute name="align"/> </optional>
     <optional> <attribute name="metatype"/> </optional>
-    <optional>
-      <attribute name="trial">
-        <ref name="boolean_type"/>
-      </attribute>
-    </optional>
     <optional> <attribute name="extension"/> </optional>
     <!--
         THIS IS THE WEAK ADDR TYPE.  Attribute size is not required.
       -->
     <ref name="addr_tags_type"/>
+  </define>
+
+  <define name="pentry_group_type">
+    <oneOrMore>
+      <element name="pentry">
+      	<ref name="pentry_type"/>
+      </element>
+    </oneOrMore>
   </define>
 
   <define name="rangelist_type">
@@ -359,11 +369,19 @@
         <optional> <attribute name="pointermax"/> </optional>
         <optional> <attribute name="thisbeforeretpointer"/> </optional>
         <optional> <attribute name="killedbycall"/> </optional>
-        <zeroOrMore>
-          <element name="pentry">
-            <ref name="pentry_type"/>
-          </element>
-        </zeroOrMore>
+        <optional> <attribute name="separatefloat"/> </optional>
+        <interleave>
+          <zeroOrMore>
+            <element name="pentry">
+              <ref name="pentry_type"/>
+            </element>
+          </zeroOrMore>
+          <zeroOrMore>
+            <element name="group">
+              <ref name="pentry_group_type"/>
+            </element>
+          </zeroOrMore>
+        </interleave>
       </element>
 
       <element name="output">

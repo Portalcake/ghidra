@@ -15,10 +15,11 @@
  */
 package ghidra.plugin.importer;
 
+import java.util.*;
+
 import java.awt.Window;
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.*;
 
 import docking.widgets.OptionDialog;
 import ghidra.app.plugin.core.help.AboutDomainObjectUtils;
@@ -33,7 +34,6 @@ import ghidra.formats.gfilesystem.*;
 import ghidra.framework.main.AppInfo;
 import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.model.*;
-import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.plugins.importer.batch.BatchImportDialog;
 import ghidra.program.model.lang.LanguageCompilerSpecPair;
@@ -72,6 +72,8 @@ public class ImporterUtilities {
 		ExtensionFileFilter.forExtensions("Container files", "zip", "tar", "tgz", "jar", "gz",
 			"ipsw", "img3", "dmg", "apk", "cpio", "rpm", "lib");
 
+	private static final FileSystemService fsService = FileSystemService.getInstance();
+
 	static List<LanguageCompilerSpecPair> getPairs(Collection<LoadSpec> loadSpecs) {
 		Set<LanguageCompilerSpecPair> pairs = new HashSet<>();
 		for (LoadSpec loadSpec : loadSpecs) {
@@ -81,39 +83,6 @@ public class ImporterUtilities {
 			}
 		}
 		return CollectionUtils.asList(pairs);
-	}
-
-	/**
-	 * Ensure that a {@link Program}'s metadata includes its import origin.
-	 *
-	 * @param program imported {@link Program} to modify
-	 * @param fsrl {@link FSRL} of the import source.
-	 * @param monitor {@link TaskMonitor} to use when accessing filesystem stuff.
-	 * @throws CancelledException if user cancels
-	 * @throws IOException if IO error
-	 */
-	public static void setProgramProperties(Program program, FSRL fsrl, TaskMonitor monitor)
-			throws CancelledException, IOException {
-
-		Objects.requireNonNull(monitor);
-
-		int id = program.startTransaction("setImportProperties");
-		try {
-			fsrl = FileSystemService.getInstance().getFullyQualifiedFSRL(fsrl, monitor);
-
-			Options propertyList = program.getOptions(Program.PROGRAM_INFO);
-			propertyList.setString(ProgramMappingService.PROGRAM_SOURCE_FSRL, fsrl.toString());
-			String md5 = program.getExecutableMD5();
-			if ((md5 == null || md5.isEmpty()) && fsrl.getMD5() != null) {
-				program.setExecutableMD5(fsrl.getMD5());
-			}
-		}
-		finally {
-			program.endTransaction(id, true);
-		}
-		if (program.canSave()) {
-			program.save("Added import properties", monitor);
-		}
 	}
 
 	/**
@@ -165,11 +134,10 @@ public class ImporterUtilities {
 
 		RefdFile referencedFile = null;
 		try {
-			FileSystemService service = FileSystemService.getInstance();
-			referencedFile = service.getRefdFile(fsrl, monitor);
+			referencedFile = fsService.getRefdFile(fsrl, monitor);
 
-			FSRL fullFsrl = service.getFullyQualifiedFSRL(fsrl, monitor);
-			boolean isFSContainer = service.isFileFilesystemContainer(fullFsrl, monitor);
+			FSRL fullFsrl = fsService.getFullyQualifiedFSRL(fsrl, monitor);
+			boolean isFSContainer = fsService.isFileFilesystemContainer(fullFsrl, monitor);
 			if (referencedFile.file.getLength() == 0) {
 				Msg.showError(ImporterUtilities.class, null, "File is empty",
 					"File " + fsrl.getPath() + " is empty, nothing to import");
@@ -264,10 +232,11 @@ public class ImporterUtilities {
 		Objects.requireNonNull(monitor);
 
 		try {
-			ByteProvider provider = FileSystemService.getInstance().getByteProvider(fsrl, monitor);
+			ByteProvider provider = fsService.getByteProvider(fsrl, false, monitor);
 			if (provider.length() == 0) {
 				Msg.showWarn(null, null, "Error opening " + fsrl.getName(),
 					"The item does not correspond to a valid file.");
+				provider.close();
 				return;
 			}
 
@@ -307,8 +276,7 @@ public class ImporterUtilities {
 			TaskMonitor monitor) {
 
 		try {
-
-			ByteProvider provider = FileSystemService.getInstance().getByteProvider(fsrl, monitor);
+			ByteProvider provider = fsService.getByteProvider(fsrl, true, monitor);
 			LoaderMap loaderMap = LoaderService.getAllSupportedLoadSpecs(provider);
 
 			SystemUtilities.runSwingLater(() -> {
@@ -393,7 +361,7 @@ public class ImporterUtilities {
 
 		Objects.requireNonNull(monitor);
 
-		try (ByteProvider bp = FileSystemService.getInstance().getByteProvider(fsrl, monitor)) {
+		try (ByteProvider bp = fsService.getByteProvider(fsrl, false, monitor)) {
 
 			Object consumer = new Object();
 			MessageLog messageLog = new MessageLog();
@@ -427,13 +395,12 @@ public class ImporterUtilities {
 
 			if (importedObject instanceof Program) {
 				Program program = (Program) importedObject;
-
-				setProgramProperties(program, fsrl, monitor);
 				ProgramMappingService.createAssociation(fsrl, program);
 
 				if (programManager != null) {
-					int openState =
-						firstProgram ? ProgramManager.OPEN_CURRENT : ProgramManager.OPEN_VISIBLE;
+					int openState = firstProgram
+							? ProgramManager.OPEN_CURRENT
+							: ProgramManager.OPEN_VISIBLE;
 					programManager.openProgram(program, openState);
 				}
 				importedFilesSet.add(program.getDomainFile());
@@ -464,7 +431,7 @@ public class ImporterUtilities {
 		Objects.requireNonNull(monitor);
 
 		MessageLog messageLog = new MessageLog();
-		try (ByteProvider bp = FileSystemService.getInstance().getByteProvider(fsrl, monitor)) {
+		try (ByteProvider bp = fsService.getByteProvider(fsrl, false, monitor)) {
 			loadSpec.getLoader().loadInto(bp, loadSpec, options, messageLog, program, monitor);
 			displayResults(tool, program, program.getDomainFile(), messageLog.toString());
 		}

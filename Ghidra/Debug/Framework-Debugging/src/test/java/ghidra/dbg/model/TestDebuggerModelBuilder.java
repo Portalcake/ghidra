@@ -15,6 +15,7 @@
  */
 package ghidra.dbg.model;
 
+import java.nio.ByteBuffer;
 import java.util.function.Function;
 
 import ghidra.program.model.address.Address;
@@ -39,12 +40,16 @@ public class TestDebuggerModelBuilder {
 	public TestTargetRegister testRegisterPC;
 	public TestTargetRegister testRegisterSP;
 
+	protected TestDebuggerObjectModel newModel(String typeHint) {
+		return new TestDebuggerObjectModel(typeHint);
+	}
+
 	public void createTestModel() {
 		createTestModel("Session");
 	}
 
 	public void createTestModel(String typeHint) {
-		testModel = new TestDebuggerObjectModel(typeHint);
+		testModel = newModel(typeHint);
 	}
 
 	public Address addr(long offset) {
@@ -55,12 +60,24 @@ public class TestDebuggerModelBuilder {
 		return testModel.range(min, max);
 	}
 
+	public byte[] arr(int... e) {
+		byte[] result = new byte[e.length];
+		for (int i = 0; i < e.length; i++) {
+			result[i] = (byte) e[i];
+		}
+		return result;
+	}
+
+	public ByteBuffer buf(int... e) {
+		return ByteBuffer.wrap(arr(e));
+	}
+
 	public void createTestProcessesAndThreads() {
 		testProcess1 = testModel.addProcess(1);
 		testThread1 = testProcess1.addThread(1);
 		testThread2 = testProcess1.addThread(2);
 
-		testProcess3 = testModel.addProcess(3);
+		testProcess3 = testModel.addProcess(3, testModel.ram3);
 		testThread3 = testProcess3.addThread(3);
 		testThread4 = testProcess3.addThread(4);
 	}

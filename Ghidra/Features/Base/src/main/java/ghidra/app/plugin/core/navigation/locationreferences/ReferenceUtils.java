@@ -20,32 +20,21 @@ import java.util.Stack;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
-import ghidra.app.services.DataTypeReference;
-import ghidra.app.services.DataTypeReferenceFinder;
+import ghidra.app.services.*;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
 import ghidra.program.model.data.Array;
+import ghidra.program.model.data.Enum;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.util.*;
 import ghidra.util.classfinder.ClassSearcher;
 import ghidra.util.datastruct.*;
-import ghidra.util.exception.AssertException;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 public final class ReferenceUtils {
-
-	private static final String EMBOLDEN_START =
-		"<span style=\"background-color: #a3e4d7; color: black;\"><b><font size=4>";
-	private static final String EMBOLDEN_END = "</font></b></span>";
-
-	public static final String CONTEXT_CALLOUT_START = "[|";
-	public static final String CONTEXT_CALLOUT_END = "|]";
-
-	public static final String CONTEXT_CALLOUT_START_REGEX = "\\[\\|";
-	public static final String CONTEXT_CALLOUT_END_REGEX = "\\|\\]";
 
 	private ReferenceUtils() {
 		// utility class
@@ -79,7 +68,7 @@ public final class ReferenceUtils {
 	 * @param accumulator The Accumulator into which LocationReferences will be placed.
 	 * @param location The location for which to find references
 	 * @param monitor the task monitor used to track progress and cancel the work
-	 * @throws CancelledException if the operation was cancelled 
+	 * @throws CancelledException if the operation was cancelled
 	 */
 	public static void getReferences(Accumulator<LocationReference> accumulator,
 			ProgramLocation location, TaskMonitor monitor) throws CancelledException {
@@ -173,20 +162,24 @@ public final class ReferenceUtils {
 
 	/**
 	 * Returns all references (locations) that use the given datatype.
-	 * <br>
-	 * <b>Note: </b> This method call may take a long time, as it must search all of the
-	 * data within the program and may also perform long running tasks, like decompiling every
-	 * function in the program.
-	 * <br>
-	 * @param accumulator the results storage
+	 * <p>
+	 * <b>Note: </b> This method call may take a long time, as it must search all of the data
+	 * within the program and may also perform long running tasks, like decompiling every function
+	 * in the program.
+	 *
+	 * @param accumulator the results storage.
 	 * @param dataType The datatype for which to find references.
-	 * @param fieldName optional field name for which to search; the <tt>dataType</tt> must be
-	 *                  a {@link Composite} to search for a field
+	 * @param fieldName optional field name for which to search; the <tt>dataType</tt> must be a
+	 * {@link Composite} to search for a field.
 	 * @param program The program from within which to find references.
 	 * @param monitor A task monitor to be updated as data is searched; if this is null, then a
-	 *        dummy monitor will be used.
-	 * @throws CancelledException if the monitor is cancelled
+	 * dummy monitor will be used.
+	 * @throws CancelledException if the monitor is cancelled.
+	 * @deprecated use {@link #findDataTypeFieldReferences(Accumulator, FieldMatcher, Program,
+	 * boolean, TaskMonitor)}.
+	 * @Deprecated(since = "10.2")
 	 */
+	@Deprecated
 	public static void findDataTypeReferences(Accumulator<LocationReference> accumulator,
 			DataType dataType, String fieldName, Program program, TaskMonitor monitor)
 			throws CancelledException {
@@ -195,24 +188,26 @@ public final class ReferenceUtils {
 
 	/**
 	 * Returns all references (locations) that use the given datatype.
-	 * <br>
-	 * <b>Note: </b> This method call may take a long time, as it must search all of the
-	 * data within the program and may also perform long running tasks, like decompiling every
-	 * function in the program.
-	 * <br>
-	 * @param accumulator the results storage
+	 * <p>
+	 * <b>Note: </b> This method call may take a long time, as it must search all of the data
+	 * within the program and may also perform long running tasks, like decompiling every function
+	 * in the program.
+	 *
+	 * @param accumulator the results storage.
 	 * @param dataType The datatype for which to find references.
-	 * @param fieldName optional field name for which to search; the <tt>dataType</tt> must be
-	 *                  a {@link Composite} to search for a field
+	 * @param fieldName optional field name for which to search; the <tt>dataType</tt> must be a
+	 * {@link Composite} to search for a field.
 	 * @param program The program from within which to find references.
-	 * @param discoverTypes if true, the {@link DataTypeReferenceFinder} service 
-	 *                will be used to search for data types that are not applied in memory.  
-	 *                Using the service will be slower, but will recover type usage that could
-	 *                not be found by examining the Listing.
+	 * @param discoverTypes if true, the {@link DataTypeReferenceFinder} service will be used to
+	 * search for data types that are not applied in memory.  Using the service will be slower, but
+	 * will recover type usage that could not be found by examining the Listing.
 	 * @param monitor A task monitor to be updated as data is searched; if this is null, then a
-	 *        dummy monitor will be used.
-	 * @throws CancelledException if the monitor is cancelled
+	 * dummy monitor will be used.
+	 * @throws CancelledException if the monitor is cancelled.
+	 * @deprecated use {@link #findDataTypeFieldReferences(Accumulator, FieldMatcher, Program,
+	 * boolean, TaskMonitor)}.
 	 */
+	@Deprecated(since = "10.2")
 	public static void findDataTypeReferences(Accumulator<LocationReference> accumulator,
 			DataType dataType, String fieldName, Program program, boolean discoverTypes,
 			TaskMonitor monitor) throws CancelledException {
@@ -220,17 +215,72 @@ public final class ReferenceUtils {
 		// Note: none of the params can be null, but this one gets used much later, so check now
 		Objects.requireNonNull(dataType, () -> "Data Type cannot be null");
 
-		// sanity check
-		if (fieldName != null && !(dataType instanceof Composite)) {
-			throw new IllegalArgumentException("Can only search for a field with a Composite type");
-		}
+		FieldMatcher fieldMatcher = new FieldMatcher(dataType, fieldName);
+		doFindDataTypeReferences(accumulator, fieldMatcher, program, discoverTypes, monitor);
+	}
 
-		if (monitor == null) {
-			monitor = TaskMonitor.DUMMY;
-		}
+	/**
+	 * Returns all references (locations) that use the given datatype.
+	 * <p>
+	 * <b>Note: </b> This method call may take a long time, as it must search all of the data
+	 * within the program and may also perform long running tasks, like decompiling every function
+	 * in the program.
+	 *
+	 * @param accumulator the results storage.
+	 * @param dataType The datatype for which to find references.
+	 * @param program The program from within which to find references.
+	 * @param discoverTypes if true, the {@link DataTypeReferenceFinder} service will be used to
+	 * search for data types that are not applied in memory.  Using the service will be slower, but
+	 * will recover type usage that could not be found by examining the Listing.
+	 * @param monitor A task monitor to be updated as data is searched; if this is null, then a
+	 *        dummy monitor will be used.
+	 * @throws CancelledException if the monitor is cancelled.
+	 */
+	public static void findDataTypeReferences(Accumulator<LocationReference> accumulator,
+			DataType dataType, Program program, boolean discoverTypes, TaskMonitor monitor)
+			throws CancelledException {
 
+		doFindDataTypeReferences(accumulator, new FieldMatcher(dataType), program, discoverTypes,
+			monitor);
+	}
+
+	/**
+	 * Returns all references (locations) that use the given datatype.
+	 * <p>
+	 * <b>Note: </b> This method call may take a long time, as it must search all of the data
+	 * within the program and may also perform long running tasks, like decompiling every function
+	 * in the program.
+	 * <p>
+	 * The supplied field matcher will be used to restrict matches to the given field.  The matcher
+	 * may be 'empty', supplying only the data type for which to search.  In this case, all uses
+	 * of the type will be matched, regardless of field.
+	 *
+	 * @param accumulator the results storage.
+	 * @param fieldMatcher the field matcher.
+	 * @param program The program from within which to find references.
+	 * @param discoverTypes if true, the {@link DataTypeReferenceFinder} service will be used to
+	 * search for data types that are not applied in memory.  Using the service will be slower, but
+	 * will recover type usage that could not be found by examining the Listing.
+	 * @param monitor A task monitor to be updated as data is searched; if this is null, then a
+	 *        dummy monitor will be used.
+	 * @throws CancelledException if the monitor is cancelled.
+	 */
+	public static void findDataTypeFieldReferences(Accumulator<LocationReference> accumulator,
+			FieldMatcher fieldMatcher, Program program, boolean discoverTypes, TaskMonitor monitor)
+			throws CancelledException {
+
+		Objects.requireNonNull(fieldMatcher, "FieldMatcher cannot be null");
+		doFindDataTypeReferences(accumulator, fieldMatcher, program, discoverTypes, monitor);
+	}
+
+	private static void doFindDataTypeReferences(Accumulator<LocationReference> accumulator,
+			FieldMatcher fieldMatcher, Program program, boolean discoverTypes, TaskMonitor monitor)
+			throws CancelledException {
+
+		monitor = TaskMonitor.dummyIfNull(monitor);
+
+		DataType dataType = fieldMatcher.getDataType();
 		Listing listing = program.getListing();
-
 		long dataCount = listing.getNumDefinedData();
 		int functionCount = program.getFunctionManager().getFunctionCount();
 		int totalCount = (int) dataCount + functionCount;
@@ -242,14 +292,15 @@ public final class ReferenceUtils {
 		// the code.
 		Accumulator<LocationReference> asSet = asSet(accumulator);
 
-		if (fieldName == null) {
-			// It only makes sense to search here when we do not have a field
-
+		if (fieldMatcher.isIgnored()) {
+			//
+			// It only makes sense to search here when we do not have a field to match
+			//
 			boolean localsOnly = discoverTypes;
 			FunctionIterator iterator = listing.getFunctions(false);
 			findDataTypeMatchesInFunctionHeaders(asSet, iterator, dataType, localsOnly, monitor);
 
-			// external functions don't get searched by type discovery  
+			// external functions don't get searched by type discovery
 			localsOnly = false;
 			iterator = listing.getExternalFunctions();
 			findDataTypeMatchesInFunctionHeaders(asSet, iterator, dataType, localsOnly, monitor);
@@ -260,10 +311,11 @@ public final class ReferenceUtils {
 			boolean matches = dataTypesMatch(dataType, baseType);
 			return matches;
 		};
-		findDataTypeMatchesInDefinedData(asSet, program, dataMatcher, fieldName, monitor);
+
+		findDataTypeMatchesInDefinedData(asSet, program, dataMatcher, fieldMatcher, monitor);
 
 		if (discoverTypes) {
-			findDataTypeMatchesOutsideOfListing(asSet, program, dataType, fieldName, monitor);
+			findDataTypeMatchesOutsideOfListing(asSet, program, dataType, fieldMatcher, monitor);
 		}
 
 		monitor.checkCanceled();
@@ -281,23 +333,17 @@ public final class ReferenceUtils {
 
 	private static void findDataTypeMatchesOutsideOfListing(
 			Accumulator<LocationReference> accumulator, Program program, DataType dataType,
-			String fieldName, TaskMonitor monitor) throws CancelledException {
+			FieldMatcher fieldMatcher, TaskMonitor monitor) throws CancelledException {
 
 		List<DataTypeReferenceFinder> finders =
 			ClassSearcher.getInstances(DataTypeReferenceFinder.class);
 
 		Consumer<DataTypeReference> callback = ref -> {
 
-			String context = emboldenBracketedText(ref.getContext());
+			LocationReferenceContext context = ref.getContext();
 			LocationReference locationReference = new LocationReference(ref.getAddress(), context);
 			accumulator.add(locationReference);
 		};
-
-		if (fieldName != null && !(dataType instanceof Composite)) {
-			throw new AssertException(
-				"Must have a Composite data type to perform a field search.  Found " + dataType +
-					"; field '" + fieldName + "'");
-		}
 
 		if (finders.isEmpty()) {
 			Msg.debug(ReferenceUtils.class, "Unable to find any implementations of " +
@@ -306,12 +352,7 @@ public final class ReferenceUtils {
 		}
 
 		for (DataTypeReferenceFinder finder : finders) {
-			if (fieldName == null) {
-				finder.findReferences(program, dataType, callback, monitor);
-			}
-			else {
-				finder.findReferences(program, (Composite) dataType, fieldName, callback, monitor);
-			}
+			finder.findReferences(program, fieldMatcher, callback, monitor);
 		}
 	}
 
@@ -566,7 +607,7 @@ public final class ReferenceUtils {
 	}
 
 	/*
-	 * Creates a location descriptor from a field location 
+	 * Creates a location descriptor from a field location
 	 * (which has more info than just an address).  A
 	 * {@link FieldNameFieldLocation} can be tied to a {@link Composite} field or it can
 	 * be an array index subscript.
@@ -631,23 +672,23 @@ public final class ReferenceUtils {
 	}
 
 	/*
-	 * Creates a location descriptor from just an address (which has less info than an 
-	 * actual location)  A {@link FieldNameFieldLocation} can be tied to 
+	 * Creates a location descriptor from just an address (which has less info than an
+	 * actual location)  A {@link FieldNameFieldLocation} can be tied to
 	 * a {@link Composite} field or it can be an array index subscript.
 	 *
 	 * Since this method is handed only an address and not a ProgramLocation, we have to do
 	 * some digging to see what is buried at the given address.
 	 */
 	private static LocationDescriptor createDataMemberLocationDescriptor(
-			OperandFieldLocation location, Address refAddress) {
+			OperandFieldLocation location, Address address) {
 
-		// TODO we don't support data types on external addresses; this could change in the future
-		if (refAddress.isExternalAddress()) {
+		// Note: we don't support data types on external addresses; this could change in the future
+		if (address.isExternalAddress()) {
 			return null;
 		}
 
 		Program program = location.getProgram();
-		Data outermostData = getDataContainingAddress(program, refAddress);
+		Data outermostData = getDataContainingAddress(program, address);
 		if (outermostData == null) {
 			// no data
 			return null;
@@ -656,12 +697,12 @@ public final class ReferenceUtils {
 		String fieldPath = getFieldPath(location);
 		if (!fieldPath.contains(".")) {
 
-			// no field reference, so don't create a structure member reference, but just 
-			// a generic data type reference
+			// no field reference, so don't create a structure member reference, but just a generic
+			// data type reference
 			DataType type = outermostData.getDataType();
 			if (type == DataType.DEFAULT || Undefined.isUndefined(type)) {
-				// nobody wants to search for undefined usage; too many (this is the case 
-				// where the user is not on an actual data type)
+				// nobody wants to search for undefined usage; too many (this is the case where the
+				// user is not on an actual data type)
 				return null;
 			}
 
@@ -672,14 +713,15 @@ public final class ReferenceUtils {
 
 		String fieldName = getFieldName(location);
 		Address parentAddress = outermostData.getMinAddress();
-		Data subData = outermostData.getComponentAt((int) refAddress.subtract(parentAddress));
+		int componentAddress = (int) address.subtract(parentAddress);
+		Data subData = outermostData.getComponentContaining(componentAddress);
 		if (subData != null) {
 
 			int[] componentPath = subData.getComponentPath();
 			FieldNameFieldLocation fieldLocation =
-				new FieldNameFieldLocation(program, refAddress, componentPath, fieldName, 0);
+				new FieldNameFieldLocation(program, address, componentPath, fieldName, 0);
 			LocationDescriptor descriptor =
-				createSubDataMemberLocationDescriptor(program, refAddress, fieldLocation, subData);
+				createSubDataMemberLocationDescriptor(program, address, fieldLocation, subData);
 			return descriptor;
 		}
 
@@ -688,18 +730,41 @@ public final class ReferenceUtils {
 		//
 		DataType dt = outermostData.getDataType();
 		if (dt instanceof Union) {
-			AddressFieldLocation addressLocation = new AddressFieldLocation(program, refAddress,
-				new int[] { 0 }, refAddress.toString(), 0);
+			AddressFieldLocation addressLocation =
+				new AddressFieldLocation(program, address, new int[] { 0 }, address.toString(), 0);
 			return new UnionLocationDescriptor(addressLocation, program);
 		}
 
 		return null;
 	}
 
+	private static GenericDataTypeLocationDescriptor createGenericDataTypeLocationDescriptor(
+			OperandFieldLocation location) {
+
+		Data data = getDataAt(location);
+		if (data == null) {
+			return null;
+		}
+
+		DataType dt = data.getDataType();
+		if (dt instanceof Enum) {
+
+			String enumText = location.getOperandRepresentation();
+			GenericCompositeDataTypeProgramLocation genericLocation =
+				new GenericCompositeDataTypeProgramLocation(location.getProgram(), dt, enumText);
+			return new GenericCompositeDataTypeLocationDescriptor(genericLocation,
+				location.getProgram());
+		}
+
+		GenericDataTypeProgramLocation genericLocation =
+			new GenericDataTypeProgramLocation(location.getProgram(), dt);
+		return new GenericDataTypeLocationDescriptor(genericLocation, location.getProgram(), dt);
+	}
+
 	/*
-	 * Creates a location descriptor using the String display markup and type information 
+	 * Creates a location descriptor using the String display markup and type information
 	 * found inside of the VariableOffset object.
-	 * 
+	 *
 	 * This method differs from createDataMemberLocationDescriptor() in that this method
 	 * will create locations that represent DataTypes that are not applied in memory.
 	 */
@@ -757,7 +822,7 @@ public final class ReferenceUtils {
 		// field inside of the 'bar' composite type.  We need to find the type of 'bar'.
 		//
 		// examples: foo.bar.baz
-		// 
+		//
 		Stack<String> path = new Stack<>();
 		for (int i = parts.length - 1; i >= 0; i--) {
 			path.push(parts[i]);
@@ -797,13 +862,15 @@ public final class ReferenceUtils {
 		Program p = location.getProgram();
 		Listing l = p.getListing();
 		Data dataContaining = l.getDataContaining(location.getAddress());
-		Data data = dataContaining.getComponent(location.getComponentPath());
-		return data;
+		if (dataContaining != null) {
+			return dataContaining.getComponent(location.getComponentPath());
+		}
+		return null;
 	}
 
 	/*
 	 * Finds the data type represented by the lowest-level value in the stack.  This is done
-	 * by using the given parent and the item on the top of the stack to find a matching 
+	 * by using the given parent and the item on the top of the stack to find a matching
 	 * field (the parent must be a Composite).
 	 */
 	private static DataType findLeafDataType(DataType parent, Stack<String> path) {
@@ -834,9 +901,15 @@ public final class ReferenceUtils {
 	private static LocationDescriptor createOperandLocationDescriptor(
 			OperandFieldLocation location) {
 
+		// this is the 'to' address
 		Address refAddress = getReferenceAddress(location);
 		if (refAddress == null) {
-			return null; // no reference and no variable-offset
+			//
+			// No reference address for this location.  Try to create a generic data descriptor.
+			//
+			GenericDataTypeLocationDescriptor descriptor =
+				createGenericDataTypeLocationDescriptor(location);
+			return descriptor;
 		}
 
 		Address operandAddress = location.getAddress();
@@ -845,29 +918,27 @@ public final class ReferenceUtils {
 		ReferenceManager referenceManager = program.getReferenceManager();
 		Reference reference =
 			referenceManager.getReference(operandAddress, refAddress, operandIndex);
-
 		if (reference == null) {
 
-			// Prefer using the reference, for consistency.  Without that, the 
-			// VariableOffset object contains markup and type information we can use.
-			// Having a VariableOffset without a reference occurs when a
-			// register variable reference is inferred during instruction operand formatting.
+			// Prefer using the reference, for consistency.  Without that, the VariableOffset
+			// object contains markup and type information we can use.  Having a VariableOffset
+			// without a reference occurs when a register variable reference is inferred during
+			// instruction operand formatting.
 			VariableOffset variableOffset = location.getVariableOffset();
 			return createGenericDataTypeLocationDescriptor(program, variableOffset);
 		}
 
-		// note: not sure why we are ignoring external references.  It seems like that is
-		//       a thing you may want to find refs to.  If you figure it out, update this
-		//       comment.
+		// note: not sure why we are ignoring external references.  It seems like that is a thing
+		// you may want to find refs to.  If you figure it out, update this comment.
 		// if (reference.isExternalReference()) {
 		//	  return null;
 		// }
 
 		//
-		// Using the reference, we can heck for the 'Extended Markup' style reference, such as:
+		// Using the reference, we can check for the 'Extended Markup' style reference, such as:
 		// 		instruction ...=>Foo.bar.baz
 		//                     -------------
-		// Note: these references are to labels (not sure why the reference isn't to a data 
+		// Note: these references are to labels (not sure why the reference isn't to a data
 		//       symbol)
 		//
 
@@ -951,17 +1022,17 @@ public final class ReferenceUtils {
 
 	/**
 	 * Searches defined data for types that match, according to the given predicate.
-	 * 
+	 *
 	 * @param accumulator the results accumulator
 	 * @param program the program
 	 * @param dataMatcher the predicate that determines a successful match
-	 * @param fieldName the optional field name for which to search
+	 * @param fieldMatcher the field matcher; will be ignored if it contains null values
 	 * @param monitor the task monitor used to track progress and cancel the work
-	 * @throws CancelledException if the operation was cancelled 
+	 * @throws CancelledException if the operation was cancelled
 	 */
 	public static void findDataTypeMatchesInDefinedData(Accumulator<LocationReference> accumulator,
-			Program program, Predicate<Data> dataMatcher, String fieldName, TaskMonitor monitor)
-			throws CancelledException {
+			Program program, Predicate<Data> dataMatcher, FieldMatcher fieldMatcher,
+			TaskMonitor monitor) throws CancelledException {
 
 		Listing listing = program.getListing();
 		DataIterator dataIter = listing.getDefinedData(true);
@@ -969,39 +1040,43 @@ public final class ReferenceUtils {
 			monitor.checkCanceled();
 
 			Data data = dataIter.next();
-			getMatchingDataTypesReferencesFromDataAndSubData(accumulator, data, fieldName,
+			getMatchingDataTypesReferencesFromDataAndSubData(accumulator, data, fieldMatcher,
 				dataMatcher, monitor);
 
 			monitor.incrementProgress(1);
 		}
 	}
 
-	private static LocationReference createReferenceFromDefinedData(Data data, String fieldName) {
+	private static LocationReference createReferenceFromDefinedData(Data data,
+			FieldMatcher fieldMatcher) {
 		Address dataAddress = data.getMinAddress();
-		if (fieldName == null) {
-			// no field--include the hit
+		if (fieldMatcher.isIgnored()) {
+			// no field to match; include the hit
 			return new LocationReference(dataAddress, data.getPathName());
 		}
 
-		DataTypeComponent component = getDataTypeComponent(data, fieldName);
-		if (component == null) {
-			// this implies the given data does not contain our field--do not include the hit
-			return null;
-		}
-
-		// Note: just check the current type; we may have to unroll it, looking for pointers
-		//       along the way if this is not sufficient
 		DataType dt = data.getDataType();
 		if (dt instanceof Pointer) {
 			// For defined data, do not include pointer types when we have a field name.  A
-			// pointer to the base composite type is not a direct usage of the given field.
+			// pointer to the base composite type is not a direct usage of the given field.find
 			return null;
+		}
+
+		DataType baseDt = getBaseDataType(data.getDataType());
+		if (matchesEnumField(data, baseDt, fieldMatcher)) {
+			return new LocationReference(dataAddress, fieldMatcher.getDisplayText());
+		}
+
+		DataTypeComponent component = getDataTypeComponent(baseDt, fieldMatcher);
+		if (component == null) {
+			return null;  // not in composite
 		}
 
 		Address componentAddress;
 		try {
 			componentAddress = dataAddress.addNoWrap(component.getOffset());
-			return new LocationReference(componentAddress, data.getPathName() + "." + fieldName);
+			return new LocationReference(componentAddress,
+				data.getPathName() + "." + fieldMatcher.getFieldName());
 		}
 		catch (AddressOverflowException e) {
 			// shouldn't happen
@@ -1011,33 +1086,58 @@ public final class ReferenceUtils {
 		return null;
 	}
 
-	private static DataTypeComponent getDataTypeComponent(Data data, String fieldName) {
-		DataType dt = getBaseDataType(data.getDataType());
-		if (!(dt instanceof Composite)) {
-			Msg.debug(ReferenceUtils.class,
-				"Somehow searched for a field name on a Data Type that is not a Composite");
-			return null;
+	private static boolean matchesEnumField(Data data, DataType dt, FieldMatcher matcher) {
+		if (!(dt instanceof Enum)) {
+			return false;
 		}
 
-		Composite c = (Composite) dt;
-		DataTypeComponent[] components = c.getDefinedComponents();
-		for (DataTypeComponent component : components) {
-			if (SystemUtilities.isEqual(component.getFieldName(), fieldName)) {
-				return component;
+		Enum enumm = (Enum) dt;
+		List<String> names = getEnumNames(data, enumm);
+		for (String name : names) {
+			long value = enumm.getValue(name);
+			if (matcher.matches(name, (int) value)) {
+				return true;
 			}
 		}
+		return false;
+	}
 
-		// Note: sometimes this happens if the user searches on an array element field, which
-		//       exists only in the Listing markup
+	private static List<String> getEnumNames(Data data, Enum enumm) {
+		String enumEntryName = data.getDefaultValueRepresentation();
+		List<String> enumNames = new ArrayList<>(List.of(enumm.getNames()));
+		if (enumNames.contains(enumEntryName)) {
+			return List.of(enumEntryName);
+		}
+
+		if (!enumEntryName.contains(" | ")) {
+			return Collections.emptyList();
+		}
+
+		// not a big fan of using this delimiter check, but will do so for now until there is
+		// a better way, such as asking the enum to do this work for us
+		String[] names = enumEntryName.split(" \\| ");
+		return List.of(names);
+	}
+
+	private static DataTypeComponent getDataTypeComponent(DataType dt, FieldMatcher matcher) {
+		if (dt instanceof Composite) {
+			Composite c = (Composite) dt;
+			DataTypeComponent[] components = c.getDefinedComponents();
+			for (DataTypeComponent component : components) {
+				if (matcher.matches(component.getFieldName(), component.getOffset())) {
+					return component;
+				}
+			}
+		}
 		return null;
 	}
 
 	private static void getMatchingDataTypesReferencesFromDataAndSubData(
-			Accumulator<LocationReference> accumulator, Data data, String fieldName,
+			Accumulator<LocationReference> accumulator, Data data, FieldMatcher fieldMatcher,
 			Predicate<Data> dataMatcher, TaskMonitor monitor) throws CancelledException {
 
 		if (dataMatcher.test(data)) {
-			getMatchingDataTypesReferencesFromData(accumulator, data, fieldName, monitor);
+			getMatchingDataTypesReferencesFromData(accumulator, data, fieldMatcher, monitor);
 		}
 
 		// We know that arrays are all the same element; we decided to just mark the beginning.
@@ -1052,16 +1152,16 @@ public final class ReferenceUtils {
 			monitor.checkCanceled();
 
 			Data subData = data.getComponent(i);
-			getMatchingDataTypesReferencesFromDataAndSubData(accumulator, subData, fieldName,
+			getMatchingDataTypesReferencesFromDataAndSubData(accumulator, subData, fieldMatcher,
 				dataMatcher, monitor);
 		}
 	}
 
 	private static void getMatchingDataTypesReferencesFromData(
-			Accumulator<LocationReference> accumulator, Data data, String fieldName,
+			Accumulator<LocationReference> accumulator, Data data, FieldMatcher fieldMatcher,
 			TaskMonitor monitor) throws CancelledException {
 
-		LocationReference ref = createReferenceFromDefinedData(data, fieldName);
+		LocationReference ref = createReferenceFromDefinedData(data, fieldMatcher);
 		if (ref == null) {
 			return;
 		}
@@ -1079,12 +1179,13 @@ public final class ReferenceUtils {
 
 		Consumer<Reference> referenceConsumer = reference -> {
 			Address toAddress = reference.getToAddress();
-			if (fieldName == null) {
+			if (fieldMatcher.isIgnored()) {
+				// no field to match; use the data address
 				accumulator.add(new LocationReference(reference, isOffcut(program, toAddress)));
 				return;
 			}
 
-			// only add the reference if it is directly to the field
+			// have a field match; only add the reference if it is directly to the field
 			if (toAddress.equals(dataAddress)) {
 				accumulator.add(new LocationReference(reference, false));
 			}
@@ -1133,21 +1234,7 @@ public final class ReferenceUtils {
 		}
 	}
 
-	private static String emboldenBracketedText(String context) {
-		String escaped = HTMLUtilities.escapeHTML(context);
-		String updated = fixBreakingSpaces(escaped);
-		updated = updated.replaceFirst(CONTEXT_CALLOUT_START_REGEX, EMBOLDEN_START);
-		updated = updated.replaceFirst(CONTEXT_CALLOUT_END_REGEX, EMBOLDEN_END);
-		return "<html>" + updated;
-	}
-
-	private static String fixBreakingSpaces(String s) {
-		String updated = s.replaceAll("\\s", "&nbsp;");
-		return updated;
-	}
-
 	private static boolean dataTypesMatch(DataType searchType, DataType possibleType) {
-
 		if (isBuiltIn(searchType)) {
 			Class<? extends DataType> clazz = searchType.getClass();
 			return clazz.equals(possibleType.getClass());
@@ -1166,8 +1253,8 @@ public final class ReferenceUtils {
 			return false;
 		}
 
-		if (DataTypeManager.BUILT_IN_ARCHIVE_UNIVERSAL_ID.equals(
-			sourceArchive.getSourceArchiveID())) {
+		if (DataTypeManager.BUILT_IN_ARCHIVE_UNIVERSAL_ID
+				.equals(sourceArchive.getSourceArchiveID())) {
 			return true;
 		}
 		return false;
@@ -1175,7 +1262,7 @@ public final class ReferenceUtils {
 
 	/**
 	 * Returns all references to the given variable
-	 * 
+	 *
 	 * @param accumulator the results accumulator
 	 * @param program the program
 	 * @param variable the variable
@@ -1187,8 +1274,8 @@ public final class ReferenceUtils {
 		ReferenceManager referenceManager = program.getReferenceManager();
 		Reference[] variableRefsTo = referenceManager.getReferencesTo(variable);
 		for (Reference ref : variableRefsTo) {
-			accumulator.add(
-				new LocationReference(ref, !ref.getToAddress().equals(variableAddress)));
+			accumulator
+					.add(new LocationReference(ref, !ref.getToAddress().equals(variableAddress)));
 		}
 	}
 

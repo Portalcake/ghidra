@@ -16,26 +16,21 @@
 package ghidra.app.util.opinion;
 
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.commons.collections4.BidiMap;
 
 import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.macho.MachHeader;
 import ghidra.app.util.bin.format.macho.Section;
-import ghidra.app.util.bin.format.macho.commands.SegmentNames;
-import ghidra.app.util.bin.format.macho.prelink.PrelinkMap;
+import ghidra.app.util.bin.format.macho.commands.*;
+import ghidra.app.util.bin.format.macho.prelink.MachoPrelinkMap;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.app.util.importer.MessageLogContinuesFactory;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.data.DataUtilities;
-import ghidra.program.model.data.Pointer64DataType;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.model.util.CodeUnitInsertionException;
-import ghidra.util.exception.DuplicateNameException;
-import ghidra.util.exception.InvalidInputException;
+import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -43,7 +38,7 @@ import ghidra.util.task.TaskMonitor;
  */
 public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 
-	private List<PrelinkMap> prelinkList;
+	private List<Address> chainedFixups = new ArrayList<>();
 
 	/**
 	 * Creates a new {@link MachoPrelinkProgramBuilder} based on the given information.
@@ -51,15 +46,16 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 	 * @param program The {@link Program} to build up.
 	 * @param provider The {@link ByteProvider} that contains the Mach-O's bytes.
 	 * @param fileBytes Where the Mach-O's bytes came from.
-	 * @param prelinkList Parsed {@link PrelinkMap PRELINK} information.
+	 * @param shouldAddChainedFixupsRelocations True if relocations should be added for chained 
+	 *   fixups; otherwise, false.
 	 * @param log The log.
 	 * @param monitor A cancelable task monitor.
+	 * @throws Exception if a problem occurs.
 	 */
 	protected MachoPrelinkProgramBuilder(Program program, ByteProvider provider,
-			FileBytes fileBytes, List<PrelinkMap> prelinkList, MessageLog log,
-			TaskMonitor monitor) {
-		super(program, provider, fileBytes, log, monitor);
-		this.prelinkList = prelinkList;
+			FileBytes fileBytes, boolean shouldAddChainedFixupsRelocations, MessageLog log,
+			TaskMonitor monitor) throws Exception {
+		super(program, provider, fileBytes, shouldAddChainedFixupsRelocations, log, monitor);
 	}
 
 	/**
@@ -68,15 +64,17 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 	 * @param program The {@link Program} to build up.
 	 * @param provider The {@link ByteProvider} that contains the Mach-O's bytes.
 	 * @param fileBytes Where the Mach-O's bytes came from.
-	 * @param prelinkList Parsed {@link PrelinkMap PRELINK} information.
+	 * @param addChainedFixupsRelocations True if relocations should be added for chained fixups;
+	 *   otherwise, false.
 	 * @param log The log.
 	 * @param monitor A cancelable task monitor.
 	 * @throws Exception if a problem occurs.
 	 */
 	public static void buildProgram(Program program, ByteProvider provider, FileBytes fileBytes,
-			List<PrelinkMap> prelinkList, MessageLog log, TaskMonitor monitor) throws Exception {
+			boolean addChainedFixupsRelocations, MessageLog log, TaskMonitor monitor)
+			throws Exception {
 		MachoPrelinkProgramBuilder machoPrelinkProgramBuilder = new MachoPrelinkProgramBuilder(
-			program, provider, fileBytes, prelinkList, log, monitor);
+			program, provider, fileBytes, addChainedFixupsRelocations, log, monitor);
 		machoPrelinkProgramBuilder.build();
 	}
 
@@ -85,22 +83,71 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 
 		// We want to handle the start of the Mach-O normally.  It represents the System.kext.
 		super.build();
-		
-		// Fixup any chained pointers
-		List<Address> fixedAddresses = fixupChainedPointers();
 
-		// The rest of the Mach-O's live in the memory segments that the System.kext already 
-		// defined. Therefore, we really just want to go through and do additional markup on them 
-		// since they are already loaded in.
+		// Now process the inner Mach-O's.  Newer formats use LC_FILESET_ENTRY.  Older formats
+		// require scanning and XML parsing.
+		List<MachoInfo> machoInfoList = processPrelinkFileSet();
+		if (machoInfoList.isEmpty()) {
+			machoInfoList = processPrelinkXml();
+		}
+		monitor.initialize(machoInfoList.size());
+		for (MachoInfo info : machoInfoList) {
+			info.processMemoryBlocks();
+			info.markupHeaders();
+			info.addToProgramTree();
+			monitor.incrementProgress(1);
+		}
+
+		// Remove empty entries from Program Tree
+		ProgramModule rootModule = listing.getDefaultRootModule();
+		for (Group group : rootModule.getChildren()) {
+			if (group instanceof ProgramFragment) {
+				ProgramFragment fragment = (ProgramFragment) group;
+				if (fragment.isEmpty()) {
+					rootModule.removeChild(fragment.getName());
+				}
+			}
+		}
+
+		// Do things that needed to wait until after the inner Mach-O's are processed
+		super.markupChainedFixups(chainedFixups);
+	}
+
+	/**
+	 * Processes the LC_FILESET_ENTRY commands to generate a {@link List} of discovered Mach-O's
+	 * 
+	 * @return A {@link List} of discovered Mach-O's
+	 * @throws Exception if a problem occurs
+	 */
+	private List<MachoInfo> processPrelinkFileSet() throws Exception {
+		List<MachoInfo> machoInfoList = new ArrayList<>();
+		for (FileSetEntryCommand cmd : machoHeader.getLoadCommands(FileSetEntryCommand.class)) {
+			MachoInfo info = new MachoInfo(provider, cmd.getFileOffset(),
+				space.getAddress(cmd.getVMaddress()), cmd.getFileSetEntryId().getString());
+			machoInfoList.add(info);
+		}
+		return machoInfoList;
+	}
+
+	/**
+	 * Processes the PRELINK XML to generate a {@link List} of discovered Mach-O's
+	 * 
+	 * @return A {@link List} of discovered Mach-O's
+	 * @throws Exception if a problem occurs
+	 */
+	private List<MachoInfo> processPrelinkXml() throws Exception {
+		List<MachoInfo> machoInfoList = new ArrayList<>();
 		List<Long> machoHeaderOffsets =
 			MachoPrelinkUtils.findPrelinkMachoHeaderOffsets(provider, monitor);
 		if (machoHeaderOffsets.isEmpty()) {
-			return;
+			return machoInfoList;
 		}
 
+		List<MachoPrelinkMap> prelinkList = MachoPrelinkUtils.parsePrelinkXml(provider, monitor);
+
 		// Match PRELINK information to the Mach-O's we've found
-		BidiMap<PrelinkMap, Long> map = MachoPrelinkUtils.matchPrelinkToMachoHeaderOffsets(provider,
-			prelinkList, machoHeaderOffsets, monitor);
+		BidiMap<MachoPrelinkMap, Long> map = MachoPrelinkUtils.matchPrelinkToMachoHeaderOffsets(
+			provider, prelinkList, machoHeaderOffsets, monitor);
 
 		// Determine the starting address of the PRELINK Mach-O's
 		long prelinkStart = MachoPrelinkUtils.getPrelinkStartAddr(machoHeader);
@@ -115,39 +162,20 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 		}
 
 		// Create an "info" object for each PRELINK Mach-O, which will make processing them easier
-		List<PrelinkMachoInfo> prelinkMachoInfoList = new ArrayList<>();
 		for (Long machoHeaderOffset : machoHeaderOffsets) {
-			prelinkMachoInfoList.add(new PrelinkMachoInfo(provider, machoHeaderOffset,
-				prelinkStartAddr.add(machoHeaderOffset - machoHeaderOffsets.get(0)),
-				map.getKey(machoHeaderOffset)));
+			String name = "";
+			MachoPrelinkMap prelink = map.getKey(machoHeaderOffset);
+			if (prelink != null) {
+				String path = prelink.getPrelinkBundlePath();
+				if (path != null) {
+					name = new File(path).getName();
+				}
+			}
+			machoInfoList.add(new MachoInfo(provider, machoHeaderOffset,
+				prelinkStartAddr.add(machoHeaderOffset - machoHeaderOffsets.get(0)), name));
 		}
 
-		// Process each PRELINK Mach-O
-		monitor.initialize(prelinkMachoInfoList.size());
-		for (int i = 0; i < prelinkMachoInfoList.size(); i++) {
-			PrelinkMachoInfo info = prelinkMachoInfoList.get(i);
-			PrelinkMachoInfo next = null;
-			if (i < prelinkMachoInfoList.size() - 1) {
-				next = prelinkMachoInfoList.get(i + 1);
-			}
-
-			info.processMemoryBlocks();
-			info.markupHeaders();
-			info.addToProgramTree(next);
-
-			monitor.incrementProgress(1);
-		}
-
-		// Create pointers at any fixed-up addresses
-		fixedAddresses.forEach(addr -> {
-			try {
-				DataUtilities.createData(program, addr, Pointer64DataType.dataType, -1, false,
-					DataUtilities.ClearDataMode.CLEAR_ALL_UNDEFINED_CONFLICT_DATA);
-			}
-			catch (CodeUnitInsertionException e) {
-				// No worries, something presumably more important was there already
-			}
-		});
+		return machoInfoList;
 	}
 
 	@Override
@@ -156,156 +184,44 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 		// Do nothing.  This is not applicable for a PRELINK Mach-O.
 	}
 
-	/**
-	 * Fixes up any chained pointers.  Relies on the __thread_starts section being present.
-	 * 
-	 * @return A list of addresses where pointer fixes were performed.
-	 * @throws MemoryAccessException if there was a problem reading/writing memory.
-	 */
-	private List<Address> fixupChainedPointers() throws MemoryAccessException {
-
-		Section threadStarts = machoHeader.getSection(SegmentNames.SEG_TEXT, "__thread_starts");
-		if (threadStarts == null) {
-			return Collections.emptyList();
-		}
-
-		monitor.setMessage("Fixing up chained pointers...");
-
-		List<Address> fixedAddresses = new ArrayList<>();
-		Address threadSectionStart = space.getAddress(threadStarts.getAddress());
-		Address threadSectionEnd = threadSectionStart.add(threadStarts.getSize() - 1);
-
-		long nextOffSize = (memory.getInt(threadSectionStart) & 1) * 4 + 4;
-		Address chainHead = threadSectionStart.add(4);
-
-		while (chainHead.compareTo(threadSectionEnd) < 0 && !monitor.isCancelled()) {
-			int headStartOffset = memory.getInt(chainHead);
-			if (headStartOffset == 0xFFFFFFFF || headStartOffset == 0) {
-				break;
-			}
-
-			Address chainStart = program.getImageBase().add(headStartOffset & 0xffffffffL);
-			fixedAddresses.addAll(processPointerChain(chainStart, nextOffSize));
-			chainHead = chainHead.add(4);
-		}
-
-		log.appendMsg("Fixed up " + fixedAddresses.size() + " chained pointers.");
-		return fixedAddresses;
+	@Override
+	protected void markupChainedFixups(List<Address> fixups) throws CancelledException {
+		// Just save the list.  
+		// We need to delay doing the markup until after we process all the inner Mach-O's.
+		this.chainedFixups = fixups;
 	}
 
 	/**
-	 * Fixes up any chained pointers, starting at the given address.
-	 * 
-	 * @param chainStart The starting of address of the pointer chain to fix.
-	 * @param nextOffSize The size of the next offset.
-	 * @return A list of addresses where pointer fixes were performed.
-	 * @throws MemoryAccessException if there was a problem reading/writing memory.
+	 * Convenience class to store information we need about an individual inner Mach-O
 	 */
-	private List<Address> processPointerChain(Address chainStart, long nextOffSize)
-			throws MemoryAccessException {
-		List<Address> fixedAddresses = new ArrayList<>();
-
-		while (!monitor.isCancelled()) {
-			long chainValue = memory.getLong(chainStart);
-
-			fixupPointer(chainStart, chainValue);
-			fixedAddresses.add(chainStart);
-
-			long nextValueOff = ((chainValue >> 51L) & 0x7ffL) * nextOffSize;
-			if (nextValueOff == 0) {
-				break;
-			}
-			chainStart = chainStart.add(nextValueOff);
-		}
-
-		return fixedAddresses;
-	}
-
-	/**
-	 * Fixes up the pointer at the given address.
-	 * 
-	 * @param pointerAddr The address of the pointer to fix.
-	 * @param pointerValue The value at the address of the pointer to fix.
-	 * @throws MemoryAccessException if there was a problem reading/writing memory.
-	 */
-	private void fixupPointer(Address pointerAddr, long pointerValue) throws MemoryAccessException {
-
-		final long BIT63 = (0x1L << 63);
-		final long BIT62 = (0x1L << 62);
-
-		// Bad chain value
-		if ((pointerValue & BIT62) != 0) {
-			// this is a pointer, but is good now
-		}
-
-		long fixedPointerValue = 0;
-		long fixedPointerType = 0;
-
-		// Pointer checked value
-		if ((pointerValue & BIT63) != 0) {
-			//long tagType = (pointerValue >> 49L) & 0x3L;
-			long pacMod = ((pointerValue >> 32) & 0xffff);
-			fixedPointerType = pacMod;
-			fixedPointerValue = program.getImageBase().getOffset() + (pointerValue & 0xffffffffL);
-		}
-		else {
-			fixedPointerValue =
-				((pointerValue << 13) & 0xff00000000000000L) | (pointerValue & 0x7ffffffffffL);
-			if ((pointerValue & 0x40000000000L) != 0) {
-				fixedPointerValue |= 0xfffc0000000000L;
-			}
-		}
-
-		// Add entry to relocation table for the pointer fixup
-		byte origBytes[] = new byte[8];
-		memory.getBytes(pointerAddr, origBytes);
-		program.getRelocationTable().add(pointerAddr, (int) fixedPointerType,
-			new long[] { fixedPointerValue }, origBytes, null);
-
-		// Fixup the pointer
-		memory.setLong(pointerAddr, fixedPointerValue);
-	}
-
-	/**
-	 * Convenience class to store information we need about an individual PRELINK Mach-O.
-	 */
-	private class PrelinkMachoInfo {
+	private class MachoInfo {
 
 		private Address headerAddr;
 		private MachHeader header;
 		private String name;
 
 		/**
-		 * Creates a new {@link PrelinkMachoInfo} object with the given parameters.
+		 * Creates a new {@link MachoInfo} object with the given parameters.
 		 * 
 		 * @param provider The {@link ByteProvider} that contains the Mach-O's bytes.
 		 * @param offset The offset in the provider to the start of the Mach-O.
 		 * @param headerAddr The Mach-O's header address.
-		 * @param prelink The {@link PrelinkMap PRELINK} information associated with the Mach-O.
+		 * @param name The Mach-O's name.
 		 * @throws Exception If there was a problem handling the Mach-O or PRELINK info.
 		 */
-		public PrelinkMachoInfo(ByteProvider provider, long offset, Address headerAddr,
-				PrelinkMap prelink) throws Exception {
+		public MachoInfo(ByteProvider provider, long offset, Address headerAddr,
+				String name) throws Exception {
 			this.headerAddr = headerAddr;
-			this.header = MachHeader.createMachHeader(MessageLogContinuesFactory.create(log),
-				provider, offset);
+			this.header = new MachHeader(provider, offset, false);
 			this.header.parse();
 			this.headerAddr = headerAddr;
-			this.name = "";
-
-			if (prelink != null) {
-				String path = prelink.getPrelinkBundlePath();
-				if (path != null) {
-					this.name = new File(path).getName();
-				}
-			}
+			this.name = name;
 		}
 
 		/**
-		 * Processes memory blocks for this PRELINK Mach-O.
+		 * Processes memory blocks for this Mach-O.
 		 * 
-		 * @throws Exception If there was a problem processing memory blocks for this PRELINK 
-		 *   Mach-O.
+		 * @throws Exception If there was a problem processing memory blocks for this Mach-O.
 		 * @see MachoPrelinkProgramBuilder#processMemoryBlocks(MachHeader, String, boolean, boolean)
 		 */
 		public void processMemoryBlocks() throws Exception {
@@ -313,9 +229,9 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 		}
 
 		/**
-		 * Marks up the PRELINK Mach-O headers.
+		 * Marks up the Mach-O headers.
 		 * 
-		 * @throws Exception If there was a problem marking up the PRELINK Mach-O's headers.
+		 * @throws Exception If there was a problem marking up the Mach-O's headers.
 		 * @see MachoPrelinkProgramBuilder#markupHeaders(MachHeader, Address)
 		 */
 		public void markupHeaders() throws Exception {
@@ -327,30 +243,62 @@ public class MachoPrelinkProgramBuilder extends MachoProgramBuilder {
 		}
 
 		/**
-		 * Adds an entry to the program tree for this PRELINK Mach-O.
+		 * Adds an entry to the program tree for this Mach-O.
 		 * 
-		 * @param next The PRELINK Mach-O that comes directly after this one.  Could be null if this
-		 *   is the last one.
-		 * @throws Exception If there was a problem adding this PRELINK Mach-O to the program tree.
+		 * @throws Exception If there was a problem adding this Mach-O to the program tree.
 		 */
-		public void addToProgramTree(PrelinkMachoInfo next) throws Exception {
-			if (!name.isEmpty()) {
-				ProgramFragment fragment = listing.getDefaultRootModule().createFragment(name);
-				if (next != null) {
-					fragment.move(headerAddr, next.headerAddr.subtract(1));
+		public void addToProgramTree() throws Exception {
+			if (name.isEmpty()) {
+				return;
+			}
+			ProgramModule module;
+			try {
+				module = listing.getDefaultRootModule().createModule(name);
+			}
+			catch (DuplicateNameException e) {
+				log.appendMsg("Failed to add duplicate module to program tree: " + name);
+				return;
+			}
+
+			// Add the segments, because things like the header are not included in any section
+			for (SegmentCommand segment : header.getAllSegments()) {
+				if (segment.getVMsize() == 0) {
+					continue;
 				}
-				else {
-					// This is the last PRELINK Mach-O, so we'll assume it ends where the section
-					// that contains it ends.
-					for (Section section : machoHeader.getAllSections()) {
-						Address sectionAddr = space.getAddress(section.getAddress());
-						if (headerAddr.compareTo(sectionAddr) >= 0 &&
-							headerAddr.compareTo(sectionAddr.add(section.getSize() - 1)) <= 0) {
-							fragment.move(headerAddr, sectionAddr.add(section.getSize() - 1));
-						}
+				if (segment.getSegmentName().equals(SegmentNames.SEG_LINKEDIT)) {
+					continue; // __LINKEDIT segment is shared across all modules
+				}
+				Address segmentStart = space.getAddress(segment.getVMaddress());
+				Address segmentEnd = segmentStart.add(segment.getVMsize() - 1);
+				if (!memory.contains(segmentEnd)) {
+					segmentEnd = memory.getBlock(segmentStart).getEnd();
+				}
+				ProgramFragment segmentFragment =
+					module.createFragment(String.format("%s - %s", segment.getSegmentName(), name));
+				segmentFragment.move(segmentStart, segmentEnd);
+
+				// Add the sections, which will remove overlapped ranges from the segment fragment
+				for (Section section : segment.getSections()) {
+					if (section.getSize() == 0) {
+						continue;
 					}
+					Address sectionStart = space.getAddress(section.getAddress());
+					Address sectionEnd = sectionStart.add(section.getSize() - 1);
+					if (!memory.contains(sectionEnd)) {
+						sectionEnd = memory.getBlock(sectionStart).getEnd();
+					}
+					ProgramFragment sectionFragment =
+						module.createFragment(String.format("%s %s - %s", section.getSegmentName(),
+							section.getSectionName(), name));
+					sectionFragment.move(sectionStart, sectionEnd);
+				}
+
+				// If the sections fully filled the segment, we can remove the now-empty segment
+				if (segmentFragment.isEmpty()) {
+					module.removeChild(segmentFragment.getName());
 				}
 			}
+
 		}
 	}
 }

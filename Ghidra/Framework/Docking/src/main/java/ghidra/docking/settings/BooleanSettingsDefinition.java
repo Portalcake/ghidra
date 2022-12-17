@@ -13,9 +13,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-/*
- *
- */
 package ghidra.docking.settings;
 
 /**
@@ -38,5 +35,10 @@ public interface BooleanSettingsDefinition extends SettingsDefinition {
 	 * @param value the value to store in the settings object using this settingsDefinition as the key.
 	 */
 	public abstract void setValue(Settings settings, boolean value);
+
+	@Override
+	public default boolean hasSameValue(Settings settings1, Settings settings2) {
+		return getValue(settings1) == getValue(settings2);
+	}
 
 }

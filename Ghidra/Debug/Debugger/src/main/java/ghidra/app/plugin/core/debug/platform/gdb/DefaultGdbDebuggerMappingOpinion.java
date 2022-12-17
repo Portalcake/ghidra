@@ -20,9 +20,9 @@ import java.util.stream.Collectors;
 
 import org.apache.commons.lang3.tuple.Pair;
 
-import ghidra.app.plugin.core.debug.mapping.DebuggerMappingOffer;
-import ghidra.app.plugin.core.debug.mapping.DebuggerMappingOpinion;
-import ghidra.dbg.target.*;
+import ghidra.app.plugin.core.debug.mapping.*;
+import ghidra.dbg.target.TargetEnvironment;
+import ghidra.dbg.target.TargetObject;
 import ghidra.program.model.lang.*;
 import ghidra.program.util.DefaultLanguageService;
 
@@ -33,7 +33,10 @@ public class DefaultGdbDebuggerMappingOpinion implements DebuggerMappingOpinion 
 	private static final Map<Pair<String, Endian>, List<LanguageCompilerSpecPair>> CACHE =
 		new HashMap<>();
 
-	protected static class GdbDefaultOffer extends AbstractGdbDebuggerMappingOffer {
+	/**
+	 * An opinion-specific offer class so that offers can be recognized in unit testing
+	 */
+	protected static class GdbDefaultOffer extends DefaultDebuggerMappingOffer {
 		public GdbDefaultOffer(TargetObject target, int confidence, String description,
 				LanguageCompilerSpecPair lcsp, Collection<String> extraRegNames) {
 			super(target, confidence, description, lcsp.languageID, lcsp.compilerSpecID,
@@ -73,33 +76,22 @@ public class DefaultGdbDebuggerMappingOpinion implements DebuggerMappingOpinion 
 		return true;
 	}
 
-	public static Endian getEndian(TargetEnvironment env) {
-		String strEndian = env.getEndian();
-		if (strEndian.contains("little")) {
-			return Endian.LITTLE;
-		}
-		// TODO: Do I care if it's Linux? I really don't think so.
-		if (strEndian.contains("big")) {
-			return Endian.BIG;
-		}
-		return null;
-	}
-
 	protected Set<DebuggerMappingOffer> offersForLanguageAndCSpec(TargetObject target, String arch,
 			Endian endian, LanguageCompilerSpecPair lcsp) {
 		return Set.of(new GdbDefaultOffer(target, 10, "Default GDB for " + arch, lcsp, Set.of()));
 	}
 
 	@Override
-	public Set<DebuggerMappingOffer> offersForEnv(TargetEnvironment env, TargetProcess process) {
+	public Set<DebuggerMappingOffer> offersForEnv(TargetEnvironment env, TargetObject target,
+			boolean includeOverrides) {
 		if (!isGdb(env)) {
 			return Set.of();
 		}
-		Endian endian = getEndian(env);
+		Endian endian = DebuggerMappingOpinion.getEndian(env);
 		String arch = env.getArchitecture();
 
 		return getCompilerSpecsForGnu(arch, endian).stream()
-				.flatMap(lcsp -> offersForLanguageAndCSpec(process, arch, endian, lcsp).stream())
+				.flatMap(lcsp -> offersForLanguageAndCSpec(target, arch, endian, lcsp).stream())
 				.collect(Collectors.toSet());
 	}
 }

@@ -21,7 +21,7 @@ apply plugin: 'eclipse'
 
 eclipse.project.name = 'Features GhidraServer'
 
-def yajswRelease = "yajsw-stable-12.12"
+def yajswRelease = "yajsw-stable-13.05"
 
 configurations {
 	runGhidraServer
@@ -34,10 +34,6 @@ dependencies {
 	
 	runGhidraServer project
 }
-
-addExports([
-	'java.rmi/sun.rmi.transport.tcp=ALL-UNNAMED'
-])
 
 CopySpec yajswCopySpec = copySpec {
 	File depsFile = file("${DEPS_DIR}/GhidraServer/${yajswRelease}.zip")
