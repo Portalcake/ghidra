@@ -21,12 +21,12 @@ import java.awt.*;
 import java.awt.event.KeyEvent;
 import java.beans.PropertyChangeListener;
 import java.beans.PropertyChangeSupport;
+import java.net.URL;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
-import javax.swing.ImageIcon;
-import javax.swing.JComponent;
+import javax.swing.*;
 
 import org.jdom.Element;
 
@@ -37,8 +37,6 @@ import docking.actions.PopupActionProvider;
 import docking.actions.ToolActions;
 import docking.framework.AboutDialog;
 import docking.framework.ApplicationInformationDisplayFactory;
-import docking.help.Help;
-import docking.help.HelpService;
 import docking.tool.ToolConstants;
 import docking.tool.util.DockingToolConstants;
 import docking.util.image.ToolIconURL;
@@ -47,8 +45,7 @@ import ghidra.framework.OperatingSystem;
 import ghidra.framework.Platform;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.cmd.Command;
-import ghidra.framework.main.AppInfo;
-import ghidra.framework.main.UserAgreementDialog;
+import ghidra.framework.main.*;
 import ghidra.framework.model.*;
 import ghidra.framework.options.*;
 import ghidra.framework.plugintool.dialog.ExtensionTableProvider;
@@ -58,6 +55,8 @@ import ghidra.framework.plugintool.util.*;
 import ghidra.framework.project.ProjectDataService;
 import ghidra.util.*;
 import ghidra.util.task.*;
+import help.Help;
+import help.HelpService;
 
 /**
  * Base class that is a container to manage plugins and their actions, and to coordinate the
@@ -162,7 +161,8 @@ public abstract class PluginTool extends AbstractDockingTool {
 			String name, boolean isDockable, boolean hasStatus, boolean isModal) {
 		this.project = project;
 		this.projectManager = projectManager;
-		this.toolServices = toolServices;
+		this.toolServices = toolServices == null ? new ToolServicesAdapter() : toolServices;
+
 		propertyChangeMgr = new PropertyChangeSupport(this);
 		optionsMgr = new OptionsManager(this);
 		winMgr = createDockingWindowManager(isDockable, hasStatus, isModal);
@@ -215,7 +215,7 @@ public abstract class PluginTool extends AbstractDockingTool {
 
 	protected void installHomeButton() {
 
-		ImageIcon homeIcon = ApplicationInformationDisplayFactory.getHomeIcon();
+		Icon homeIcon = ApplicationInformationDisplayFactory.getHomeIcon();
 		if (homeIcon == null) {
 			Msg.debug(this,
 				"If you would like a button to show the Front End, then set the home icon");
@@ -224,6 +224,34 @@ public abstract class PluginTool extends AbstractDockingTool {
 
 		Runnable callback = ApplicationInformationDisplayFactory.getHomeCallback();
 		winMgr.setHomeButton(homeIcon, callback);
+	}
+
+	/**
+	 * Loads all application-level utility classes into this tool.   This should only be called
+	 * by tools that represent the global application tool and not for sub-tools.
+	 */
+	protected void installUtilityPlugins() {
+
+		PluginClassManager classManager = getPluginClassManager();
+		PluginPackage utilityPackage = PluginPackage.getPluginPackage(UtilityPluginPackage.NAME);
+		List<PluginDescription> descriptions = classManager.getPluginDescriptions(utilityPackage);
+
+		Set<String> classNames = new HashSet<>();
+		if (descriptions == null) {
+			return;
+		}
+		for (PluginDescription description : descriptions) {
+			String pluginClass = description.getPluginClass().getName();
+			classNames.add(pluginClass);
+		}
+
+		try {
+			addPlugins(classNames);
+		}
+		catch (PluginException e) {
+			Msg.showError(this, null, "Error Adding Utility Plugins",
+				"Unexpected exception adding application utility plugins", e);
+		}
 	}
 
 	/**
@@ -412,6 +440,18 @@ public abstract class PluginTool extends AbstractDockingTool {
 
 	public boolean acceptDomainFiles(DomainFile[] data) {
 		return pluginMgr.acceptData(data);
+	}
+
+	/**
+	 * Request tool to accept specified URL.  Acceptance of URL depends greatly on the plugins
+	 * configured into tool.  If no plugin accepts URL it will be rejected and false returned.
+	 * If a plugin can accept the specified URL it will attempt to process and return true if
+	 * successful.  The user may be prompted if connecting to the URL requires user authentication.
+	 * @param url read-only resource URL
+	 * @return true if URL accepted and processed else false
+	 */
+	public boolean accept(URL url) {
+		return pluginMgr.accept(url);
 	}
 
 	public void addPropertyChangeListener(PropertyChangeListener l) {
@@ -796,9 +836,7 @@ public abstract class PluginTool extends AbstractDockingTool {
 	 * class already exists in the tool
 	 */
 	public void addPlugin(String className) throws PluginException {
-		checkedRunSwingNow(() -> {
-			addPlugins(new String[] { className });
-		}, PluginException.class);
+		addPlugins(List.of(className));
 	}
 
 	/**
@@ -807,37 +845,36 @@ public abstract class PluginTool extends AbstractDockingTool {
 	 * @throws PluginException if a plugin could not be constructed, or
 	 * there was problem executing its init() method, or if a plugin of this
 	 * class already exists in the tool
-	 * @deprecated use {@link #addPlugins(List)}
+	 * @deprecated use {@link #addPlugins(Collection)}
 	 */
 	@Deprecated(since = "10.2", forRemoval = true)
 	public void addPlugins(String[] classNames) throws PluginException {
-		try {
-			pluginMgr.addPlugins(Arrays.asList(classNames));
-		}
-		finally {
-			setConfigChanged(true);
-		}
+		addPlugins(Arrays.asList(classNames));
 	}
 
 	/**
 	 * Add plugins to the tool.
-	 * @param classNames array of plugin class names
+	 * @param classNames collection of plugin class names
 	 * @throws PluginException if a plugin could not be constructed, or
 	 * there was problem executing its init() method, or if a plugin of this
 	 * class already exists in the tool
 	 */
-	public void addPlugins(List<String> classNames) throws PluginException {
-		try {
-			pluginMgr.addPlugins(classNames);
-		}
-		finally {
-			setConfigChanged(true);
-		}
+	public void addPlugins(Collection<String> classNames) throws PluginException {
+		checkedRunSwingNow(() -> {
+			try {
+				pluginMgr.addPlugins(classNames);
+			}
+			finally {
+				setConfigChanged(true);
+			}
+		}, PluginException.class);
 	}
 
 	public void addPlugin(Plugin p) throws PluginException {
-		pluginMgr.addPlugin(p);
-		setConfigChanged(true);
+		checkedRunSwingNow(() -> {
+			pluginMgr.addPlugin(p);
+			setConfigChanged(true);
+		}, PluginException.class);
 	}
 
 	/**
@@ -847,14 +884,7 @@ public abstract class PluginTool extends AbstractDockingTool {
 	 */
 	@Deprecated(since = "10.2", forRemoval = true)
 	public void removePlugins(Plugin[] plugins) {
-		SystemUtilities.runSwingNow(() -> {
-			try {
-				pluginMgr.removePlugins(Arrays.asList(plugins));
-			}
-			finally {
-				setConfigChanged(true);
-			}
-		});
+		removePlugins(Arrays.asList(plugins));
 	}
 
 	/**
@@ -862,7 +892,7 @@ public abstract class PluginTool extends AbstractDockingTool {
 	 * @param plugins array of plugins to remove
 	 */
 	public void removePlugins(List<Plugin> plugins) {
-		SystemUtilities.runSwingNow(() -> {
+		Swing.runNow(() -> {
 			try {
 				pluginMgr.removePlugins(plugins);
 			}
@@ -1102,10 +1132,13 @@ public abstract class PluginTool extends AbstractDockingTool {
 	 * 	<LI>notify the project tool services that this tool is going away.
 	 * </OL>
 	 */
-
 	@Override
 	public void close() {
-		if (canClose(false) && pluginMgr.saveData()) {
+		close(false);
+	}
+
+	protected void close(boolean isExiting) {
+		if (canClose(isExiting) && pluginMgr.saveData()) {
 			doClose();
 		}
 	}
@@ -1190,7 +1223,7 @@ public abstract class PluginTool extends AbstractDockingTool {
 			else {
 				beep();
 				Msg.showInfo(getClass(), getToolFrame(), "Tool Busy",
-					"You must stop all background tasks before exiting.");
+					"You must stop all background tasks before tool may close.");
 				return false;
 			}
 		}
@@ -1297,6 +1330,9 @@ public abstract class PluginTool extends AbstractDockingTool {
 		this.project = project;
 		if (project != null) {
 			toolServices = project.getToolServices();
+		}
+		else {
+			toolServices = new ToolServicesAdapter();
 		}
 	}
 

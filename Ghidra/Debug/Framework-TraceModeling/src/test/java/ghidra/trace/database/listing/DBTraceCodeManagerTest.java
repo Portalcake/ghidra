@@ -26,8 +26,6 @@ import java.util.function.Function;
 
 import org.junit.*;
 
-import com.google.common.collect.Range;
-
 import ghidra.lifecycle.Unfinished;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
@@ -40,8 +38,9 @@ import ghidra.program.model.util.CodeUnitInsertionException;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.trace.database.ToyDBTraceBuilder;
 import ghidra.trace.database.context.DBTraceRegisterContextManager;
-import ghidra.trace.database.language.*;
+import ghidra.trace.database.guest.*;
 import ghidra.trace.model.ImmutableTraceAddressSnapRange;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.listing.*;
 import ghidra.trace.model.stack.TraceStack;
 import ghidra.trace.model.thread.TraceThread;
@@ -123,7 +122,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4001), b.buf(0xaa));
 			TraceData d4000 =
 				b.addData(0, b.addr(0x4000), IntegerDataType.dataType, b.buf(1, 2, 3, 4));
-			assertEquals(Range.closed(0L, 9L), d4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), d4000.getLifespan());
 		}
 	}
 
@@ -133,9 +132,9 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			TraceData d4000 =
 				b.addData(0, b.addr(0x4000), NoMaxStringDataType.dataType, b.buf("Hello"));
 			assertEquals(b.addr(0x4005), d4000.getMaxAddress());
-			assertEquals(Range.atLeast(0L), d4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), d4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4005), b.buf(", World!"));
-			assertEquals(Range.closed(0L, 9L), d4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), d4000.getLifespan());
 			assertNull(b.trace.getCodeManager().definedData().getContaining(10, b.addr(0x4005)));
 		}
 	}
@@ -146,13 +145,13 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			TraceData d0at4000 =
 				b.addData(0, b.addr(0x4000), NoMaxStringDataType.dataType, b.buf("Hello"));
 			assertEquals(b.addr(0x4005), d0at4000.getMaxAddress());
-			assertEquals(Range.atLeast(0L), d0at4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), d0at4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4000), b.buf("World"));
-			assertEquals(Range.closed(0L, 9L), d0at4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), d0at4000.getLifespan());
 			TraceData d10at4000 =
 				b.trace.getCodeManager().definedData().getContaining(10, b.addr(0x4000));
 			assertEquals(b.addr(0x4005), d10at4000.getMaxAddress());
-			assertEquals(Range.atLeast(10L), d10at4000.getLifespan());
+			assertEquals(Lifespan.nowOn(10), d10at4000.getLifespan());
 		}
 	}
 
@@ -161,12 +160,12 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		try (UndoableTransaction tid = b.startTransaction()) {
 			TraceData d0at4000 =
 				b.addData(0, b.addr(0x4000), IntegerDataType.dataType, b.buf(1, 2, 3, 4));
-			assertEquals(Range.atLeast(0L), d0at4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), d0at4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4000), b.buf(5, 6, 7, 8));
-			assertEquals(Range.closed(0L, 9L), d0at4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), d0at4000.getLifespan());
 			TraceData d10at4000 =
 				b.trace.getCodeManager().definedData().getContaining(10, b.addr(0x4000));
-			assertEquals(Range.atLeast(10L), d10at4000.getLifespan());
+			assertEquals(Lifespan.nowOn(10), d10at4000.getLifespan());
 			assertEquals(new Scalar(32, 0x01020304), d0at4000.getValue());
 			assertEquals(new Scalar(32, 0x05060708), d10at4000.getValue());
 		}
@@ -178,7 +177,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			TraceData d4000 =
 				b.addData(0, b.addr(0x4000), NoMaxStringDataType.dataType, b.buf("Hello"));
 			assertEquals(b.addr(0x4005), d4000.getMaxAddress());
-			assertEquals(Range.atLeast(0L), d4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), d4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(0, b.addr(0x4005), b.buf(", World!"));
 			assertNull(b.trace.getCodeManager().definedData().getContaining(0, b.addr(0x4000)));
 		}
@@ -187,7 +186,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	@Test
 	public void testAddInstruction() throws CodeUnitInsertionException {
 		try (UndoableTransaction tid = b.startTransaction()) {
-			b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 		}
 	}
 
@@ -196,26 +195,26 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		try (UndoableTransaction tid = b.startTransaction()) {
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4001), b.buf(0xaa));
 			TraceInstruction i4000 =
-				b.addInstruction(0, b.addr(0x4000), b.language, b.buf(0xf4, 0));
-			assertEquals(Range.closed(0L, 9L), i4000.getLifespan());
+				b.addInstruction(0, b.addr(0x4000), b.host, b.buf(0xf4, 0));
+			assertEquals(Lifespan.span(0, 9), i4000.getLifespan());
 		}
 	}
 
 	@Test
 	public void testAddInstructionInScratch() throws CodeUnitInsertionException {
 		try (UndoableTransaction tid = b.startTransaction()) {
-			b.trace.getMemoryManager().putBytes(-5L, b.addr(0x4001), b.buf(0xaa));
+			b.trace.getMemoryManager().putBytes(-5, b.addr(0x4001), b.buf(0xaa));
 			TraceInstruction i4000 =
-				b.addInstruction(-10, b.addr(0x4000), b.language, b.buf(0xf4, 0));
-			assertEquals(Range.closed(-10L, -6L), i4000.getLifespan());
+				b.addInstruction(-10, b.addr(0x4000), b.host, b.buf(0xf4, 0));
+			assertEquals(Lifespan.span(-10, -6), i4000.getLifespan());
 
 			TraceInstruction i4004 =
-				b.addInstruction(-1, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			assertEquals(Range.closed(-1L, -1L), i4004.getLifespan());
+				b.addInstruction(-1, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			assertEquals(Lifespan.span(-1, -1), i4004.getLifespan());
 
 			TraceInstruction i4008 =
-				b.addInstruction(-10, b.addr(0x4008), b.language, b.buf(0xf4, 0));
-			assertEquals(Range.closed(-10L, -1L), i4008.getLifespan());
+				b.addInstruction(-10, b.addr(0x4008), b.host, b.buf(0xf4, 0));
+			assertEquals(Lifespan.span(-10, -1), i4008.getLifespan());
 		}
 	}
 
@@ -223,11 +222,11 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	public void testPutBytesTruncatesInstruction() throws CodeUnitInsertionException {
 		try (UndoableTransaction tid = b.startTransaction()) {
 			TraceInstruction i4000 =
-				b.addInstruction(0, b.addr(0x4000), b.language, b.buf(0xf4, 0));
+				b.addInstruction(0, b.addr(0x4000), b.host, b.buf(0xf4, 0));
 			assertEquals(b.addr(0x4001), i4000.getMaxAddress());
-			assertEquals(Range.atLeast(0L), i4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), i4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(10, b.addr(0x4001), b.buf(1));
-			assertEquals(Range.closed(0L, 9L), i4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), i4000.getLifespan());
 			assertNull(b.trace.getCodeManager().instructions().getContaining(10, b.addr(0x4000)));
 		}
 	}
@@ -236,9 +235,9 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	public void testPutBytesDeletesInstruction() throws CodeUnitInsertionException {
 		try (UndoableTransaction tid = b.startTransaction()) {
 			TraceInstruction i4000 =
-				b.addInstruction(0, b.addr(0x4000), b.language, b.buf(0xf4, 0));
+				b.addInstruction(0, b.addr(0x4000), b.host, b.buf(0xf4, 0));
 			assertEquals(b.addr(0x4001), i4000.getMaxAddress());
-			assertEquals(Range.atLeast(0L), i4000.getLifespan());
+			assertEquals(Lifespan.nowOn(0), i4000.getLifespan());
 			b.trace.getMemoryManager().putBytes(0, b.addr(0x4001), b.buf(1));
 			assertNull(b.trace.getCodeManager().instructions().getContaining(0, b.addr(0x4000)));
 		}
@@ -267,14 +266,14 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			}
 
 			try {
-				b.addInstruction(1, b.addr(0x4001), b.language);
+				b.addInstruction(1, b.addr(0x4001), b.host);
 				fail();
 			}
 			catch (CodeUnitInsertionException e) {
 				// pass
 			}
 
-			b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 
 			try {
 				b.addData(1, b.addr(0x4005), ByteDataType.dataType, 1);
@@ -285,7 +284,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			}
 
 			try {
-				b.addInstruction(1, b.addr(0x4005), b.language);
+				b.addInstruction(1, b.addr(0x4005), b.host);
 			}
 			catch (CodeUnitInsertionException e) {
 				// pass
@@ -350,8 +349,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			assertAllNullFunc(v -> v.getAt(9, b.addr(0x4003)));
 			assertUndefinedFunc(v -> v.getAt(9, b.addr(0x4004)));
 
-			TraceInstruction i4005 =
-				b.addInstruction(0, b.addr(0x4005), b.language, b.buf(0xf4, 0));
+			TraceInstruction i4005 = b.addInstruction(0, b.addr(0x4005), b.host, b.buf(0xf4, 0));
 			i4005.setEndSnap(5);
 			assertUndefinedFunc(v -> v.getAt(0, b.addr(0x4004)));
 			assertInstructionFunc(i4005, v -> v.getAt(0, b.addr(0x4005)));
@@ -384,8 +382,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			assertDataFunc(d4000, v -> v.getContaining(9, b.addr(0x4003)));
 			assertUndefinedFunc(v -> v.getContaining(9, b.addr(0x4004)));
 
-			TraceInstruction i4005 =
-				b.addInstruction(0, b.addr(0x4005), b.language, b.buf(0xf4, 0));
+			TraceInstruction i4005 = b.addInstruction(0, b.addr(0x4005), b.host, b.buf(0xf4, 0));
 			i4005.setEndSnap(5);
 			assertUndefinedFunc(v -> v.getContaining(0, b.addr(0x4004)));
 
@@ -451,7 +448,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -593,7 +590,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -732,7 +729,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -872,7 +869,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -1086,7 +1083,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 		TraceData u3fff = manager.undefinedData().getAt(0, b.addr(0x3fff));
@@ -1139,7 +1136,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 
 		TraceInstruction iCodeMax;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			iCodeMax = b.addInstruction(0, b.addr(-0x0002), b.language, b.buf(0xf4, 0));
+			iCodeMax = b.addInstruction(0, b.addr(-0x0002), b.host, b.buf(0xf4, 0));
 		}
 
 		assertEquals(iCodeMax, manager.codeUnits().getBefore(0, b.data(0x0000)));
@@ -1172,7 +1169,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			manager.undefinedData().getFloor(0, b.data(0x0003)));
 
 		try (UndoableTransaction tid = b.startTransaction()) {
-			iCodeMax = b.addInstruction(0, b.addr(-0x0002), b.language, b.buf(0xf4, 0));
+			iCodeMax = b.addInstruction(0, b.addr(-0x0002), b.host, b.buf(0xf4, 0));
 		}
 		TraceData uCodePre = manager.undefinedData().getAt(0, b.addr(-0x0003));
 		assertUndefinedWithAddr(b.addr(-0x0003), uCodePre);
@@ -1211,7 +1208,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		try (UndoableTransaction tid = b.startTransaction()) {
 			d4000 = b.addData(0, b.addr(0x4000), IntegerDataType.dataType, b.buf(1, 2, 3, 4));
 			d4000.setEndSnap(9);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -1272,14 +1269,14 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	@Test
 	public void testRegisterSpace() throws Exception {
 		TraceThread thread;
-		DBTraceCodeRegisterSpace regCode;
+		DBTraceCodeSpace regCode;
 		TraceData dR4;
 
 		try (UndoableTransaction tid = b.startTransaction()) {
 			thread = b.getOrAddThread("Thread 1", 0);
 			regCode = manager.getCodeRegisterSpace(thread, true);
 			dR4 = regCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r4"), LongDataType.dataType);
+					.create(Lifespan.nowOn(0), b.language.getRegister("r4"), LongDataType.dataType);
 		}
 
 		assertEquals(thread, regCode.codeUnits().getThread());
@@ -1291,7 +1288,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 
 		assertEquals(List.of(dR4), list(regCode.definedUnits().get(0, true)));
 
-		DBTraceCodeRegisterSpace frameCode;
+		DBTraceCodeSpace frameCode;
 		TraceData dR5;
 
 		try (UndoableTransaction tid = b.startTransaction()) {
@@ -1301,7 +1298,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			frameCode = manager.getCodeRegisterSpace(stack.getFrame(1, false), true);
 			assertNotEquals(regCode, frameCode);
 			dR5 = frameCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r5"), LongDataType.dataType);
+					.create(Lifespan.nowOn(0), b.language.getRegister("r5"), LongDataType.dataType);
 		}
 
 		assertEquals(1, frameCode.getFrameLevel());
@@ -1346,7 +1343,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -1416,7 +1413,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
@@ -1445,7 +1442,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		assertFalse(manager.undefinedData().containsAddress(9, b.addr(0x4000)));
 	}
 
-	protected boolean coversTwoWays(TraceBaseCodeUnitsView<?> view, Range<Long> span,
+	protected boolean coversTwoWays(TraceBaseCodeUnitsView<?> view, Lifespan span,
 			AddressRange range) {
 		boolean first = view.coversRange(new ImmutableTraceAddressSnapRange(range, span));
 		boolean second = view.coversRange(span, range);
@@ -1453,7 +1450,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		return first;
 	}
 
-	protected boolean intersectsTwoWays(TraceBaseCodeUnitsView<?> view, Range<Long> span,
+	protected boolean intersectsTwoWays(TraceBaseCodeUnitsView<?> view, Lifespan span,
 			AddressRange range) {
 		boolean first = view.intersectsRange(new ImmutableTraceAddressSnapRange(range, span));
 		boolean second = view.intersectsRange(span, range);
@@ -1465,23 +1462,23 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	public void testCoversIntersectsRange() throws CodeUnitInsertionException {
 		AddressRange all = b.range(0, -1);
 
-		assertTrue(coversTwoWays(manager.codeUnits(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.codeUnits(), Range.all(), all));
+		assertTrue(coversTwoWays(manager.codeUnits(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.codeUnits(), Lifespan.ALL, all));
 
-		assertTrue(coversTwoWays(manager.data(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.data(), Range.all(), all));
+		assertTrue(coversTwoWays(manager.data(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.data(), Lifespan.ALL, all));
 
-		assertFalse(coversTwoWays(manager.definedUnits(), Range.all(), all));
-		assertFalse(intersectsTwoWays(manager.definedUnits(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.definedUnits(), Lifespan.ALL, all));
+		assertFalse(intersectsTwoWays(manager.definedUnits(), Lifespan.ALL, all));
 
-		assertFalse(coversTwoWays(manager.instructions(), Range.all(), all));
-		assertFalse(intersectsTwoWays(manager.instructions(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.instructions(), Lifespan.ALL, all));
+		assertFalse(intersectsTwoWays(manager.instructions(), Lifespan.ALL, all));
 
-		assertFalse(coversTwoWays(manager.definedData(), Range.all(), all));
-		assertFalse(intersectsTwoWays(manager.definedData(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.definedData(), Lifespan.ALL, all));
+		assertFalse(intersectsTwoWays(manager.definedData(), Lifespan.ALL, all));
 
-		assertTrue(coversTwoWays(manager.undefinedData(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.undefinedData(), Range.all(), all));
+		assertTrue(coversTwoWays(manager.undefinedData(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.undefinedData(), Lifespan.ALL, all));
 
 		TraceData d4000;
 		TraceData d4004;
@@ -1491,77 +1488,77 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
-		assertTrue(coversTwoWays(manager.codeUnits(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.codeUnits(), Range.all(), all));
+		assertTrue(coversTwoWays(manager.codeUnits(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.codeUnits(), Lifespan.ALL, all));
 
-		assertFalse(coversTwoWays(manager.data(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.data(), Range.all(), all));
-		assertTrue(coversTwoWays(manager.data(), Range.all(), b.range(0x0000, 0x4007)));
-		assertTrue(coversTwoWays(manager.data(), Range.all(), b.range(0x400a, -0x0001)));
-		assertTrue(coversTwoWays(manager.data(), Range.atMost(-1L), all));
-		assertTrue(coversTwoWays(manager.data(), Range.atLeast(10L), all));
+		assertFalse(coversTwoWays(manager.data(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.data(), Lifespan.ALL, all));
+		assertTrue(coversTwoWays(manager.data(), Lifespan.ALL, b.range(0x0000, 0x4007)));
+		assertTrue(coversTwoWays(manager.data(), Lifespan.ALL, b.range(0x400a, -0x0001)));
+		assertTrue(coversTwoWays(manager.data(), Lifespan.toNow(-1), all));
+		assertTrue(coversTwoWays(manager.data(), Lifespan.nowOn(10), all));
 		assertFalse(
-			intersectsTwoWays(manager.data(), Range.closed(0L, 9L), b.range(0x4008, 0x4009)));
+			intersectsTwoWays(manager.data(), Lifespan.span(0, 9), b.range(0x4008, 0x4009)));
 
-		assertFalse(coversTwoWays(manager.definedUnits(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.definedUnits(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.definedUnits(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.definedUnits(), Lifespan.ALL, all));
 		assertTrue(
-			coversTwoWays(manager.definedUnits(), Range.closed(0L, 5L), b.range(0x4000, 0x4009)));
+			coversTwoWays(manager.definedUnits(), Lifespan.span(0, 5), b.range(0x4000, 0x4009)));
 		assertTrue(
-			coversTwoWays(manager.definedUnits(), Range.closed(0L, 9L), b.range(0x4001, 0x4003)));
+			coversTwoWays(manager.definedUnits(), Lifespan.span(0, 9), b.range(0x4001, 0x4003)));
 		assertTrue(
-			coversTwoWays(manager.definedUnits(), Range.closed(0L, 9L), b.range(0x4008, 0x4009)));
+			coversTwoWays(manager.definedUnits(), Lifespan.span(0, 9), b.range(0x4008, 0x4009)));
 		assertFalse(
-			intersectsTwoWays(manager.definedUnits(), Range.all(), b.range(0x0000, 0x3fff)));
+			intersectsTwoWays(manager.definedUnits(), Lifespan.ALL, b.range(0x0000, 0x3fff)));
 		assertFalse(
-			intersectsTwoWays(manager.definedUnits(), Range.all(), b.range(0x400a, -0x0001)));
-		assertFalse(intersectsTwoWays(manager.definedUnits(), Range.atMost(-1L), all));
-		assertFalse(intersectsTwoWays(manager.definedUnits(), Range.atLeast(10L), all));
+			intersectsTwoWays(manager.definedUnits(), Lifespan.ALL, b.range(0x400a, -0x0001)));
+		assertFalse(intersectsTwoWays(manager.definedUnits(), Lifespan.toNow(-1), all));
+		assertFalse(intersectsTwoWays(manager.definedUnits(), Lifespan.nowOn(10), all));
 		assertFalse(
-			intersectsTwoWays(manager.definedUnits(), Range.atLeast(6L), b.range(0x4004, 0x4007)));
+			intersectsTwoWays(manager.definedUnits(), Lifespan.nowOn(6), b.range(0x4004, 0x4007)));
 
-		assertFalse(coversTwoWays(manager.instructions(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.instructions(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.instructions(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.instructions(), Lifespan.ALL, all));
 		assertTrue(
-			coversTwoWays(manager.instructions(), Range.closed(0L, 9L), b.range(0x4008, 0x4009)));
-		assertFalse(intersectsTwoWays(manager.instructions(), Range.atMost(-1L), all));
-		assertFalse(intersectsTwoWays(manager.instructions(), Range.atLeast(10L), all));
+			coversTwoWays(manager.instructions(), Lifespan.span(0, 9), b.range(0x4008, 0x4009)));
+		assertFalse(intersectsTwoWays(manager.instructions(), Lifespan.toNow(-1), all));
+		assertFalse(intersectsTwoWays(manager.instructions(), Lifespan.nowOn(10), all));
 		assertFalse(
-			intersectsTwoWays(manager.instructions(), Range.all(), b.range(0x0000, 0x4007)));
+			intersectsTwoWays(manager.instructions(), Lifespan.ALL, b.range(0x0000, 0x4007)));
 		assertFalse(
-			intersectsTwoWays(manager.instructions(), Range.all(), b.range(0x400a, -0x0001)));
+			intersectsTwoWays(manager.instructions(), Lifespan.ALL, b.range(0x400a, -0x0001)));
 
-		assertFalse(coversTwoWays(manager.definedData(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.definedData(), Range.all(), all));
+		assertFalse(coversTwoWays(manager.definedData(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.definedData(), Lifespan.ALL, all));
 		assertTrue(
-			coversTwoWays(manager.definedData(), Range.closed(0L, 5L), b.range(0x4000, 0x4007)));
+			coversTwoWays(manager.definedData(), Lifespan.span(0, 5), b.range(0x4000, 0x4007)));
 		assertTrue(
-			coversTwoWays(manager.definedData(), Range.closed(0L, 9L), b.range(0x4001, 0x4003)));
-		assertFalse(intersectsTwoWays(manager.definedData(), Range.all(), b.range(0x0000, 0x3fff)));
+			coversTwoWays(manager.definedData(), Lifespan.span(0, 9), b.range(0x4001, 0x4003)));
+		assertFalse(intersectsTwoWays(manager.definedData(), Lifespan.ALL, b.range(0x0000, 0x3fff)));
 		assertFalse(
-			intersectsTwoWays(manager.definedData(), Range.all(), b.range(0x4008, -0x0001)));
-		assertFalse(intersectsTwoWays(manager.definedData(), Range.atMost(-1L), all));
-		assertFalse(intersectsTwoWays(manager.definedData(), Range.atLeast(10L), all));
+			intersectsTwoWays(manager.definedData(), Lifespan.ALL, b.range(0x4008, -0x0001)));
+		assertFalse(intersectsTwoWays(manager.definedData(), Lifespan.toNow(-1), all));
+		assertFalse(intersectsTwoWays(manager.definedData(), Lifespan.nowOn(10), all));
 		assertFalse(
-			intersectsTwoWays(manager.definedData(), Range.atLeast(6L), b.range(0x4004, -0x0001)));
+			intersectsTwoWays(manager.definedData(), Lifespan.nowOn(6), b.range(0x4004, -0x0001)));
 
-		assertFalse(coversTwoWays(manager.undefinedData(), Range.all(), all));
-		assertTrue(intersectsTwoWays(manager.undefinedData(), Range.all(), all));
-		assertTrue(coversTwoWays(manager.undefinedData(), Range.all(), b.range(0x0000, 0x3fff)));
-		assertTrue(coversTwoWays(manager.undefinedData(), Range.all(), b.range(0x400a, -0x0001)));
-		assertTrue(coversTwoWays(manager.undefinedData(), Range.atMost(-1L), all));
-		assertTrue(coversTwoWays(manager.undefinedData(), Range.atLeast(10L), all));
+		assertFalse(coversTwoWays(manager.undefinedData(), Lifespan.ALL, all));
+		assertTrue(intersectsTwoWays(manager.undefinedData(), Lifespan.ALL, all));
+		assertTrue(coversTwoWays(manager.undefinedData(), Lifespan.ALL, b.range(0x0000, 0x3fff)));
+		assertTrue(coversTwoWays(manager.undefinedData(), Lifespan.ALL, b.range(0x400a, -0x0001)));
+		assertTrue(coversTwoWays(manager.undefinedData(), Lifespan.toNow(-1), all));
+		assertTrue(coversTwoWays(manager.undefinedData(), Lifespan.nowOn(10), all));
 		assertTrue(
-			coversTwoWays(manager.undefinedData(), Range.atLeast(6L), b.range(0x4004, 0x4007)));
-		assertFalse(intersectsTwoWays(manager.undefinedData(), Range.closed(0L, 5L),
+			coversTwoWays(manager.undefinedData(), Lifespan.nowOn(6), b.range(0x4004, 0x4007)));
+		assertFalse(intersectsTwoWays(manager.undefinedData(), Lifespan.span(0, 5),
 			b.range(0x4000, 0x4009)));
-		assertFalse(intersectsTwoWays(manager.undefinedData(), Range.closed(0L, 9L),
+		assertFalse(intersectsTwoWays(manager.undefinedData(), Lifespan.span(0, 9),
 			b.range(0x4001, 0x4003)));
-		assertFalse(intersectsTwoWays(manager.undefinedData(), Range.closed(0L, 9L),
+		assertFalse(intersectsTwoWays(manager.undefinedData(), Lifespan.span(0, 9),
 			b.range(0x4008, 0x4009)));
 	}
 
@@ -1575,14 +1572,14 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 		}
 
 		assertEquals(d4000, manager.definedUnits().getAt(0, b.addr(0x4000)));
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.definedUnits()
-					.clear(Range.all(), b.range(0x0000, -0x0001), false,
+					.clear(Lifespan.ALL, b.range(0x0000, -0x0001), false,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(manager.definedUnits().getAt(0, b.addr(0x4000)));
@@ -1598,15 +1595,15 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		assertEquals(d4000, manager.definedUnits().getAt(7, b.addr(0x4000)));
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.definedUnits()
-					.clear(Range.closed(7L, 8L), b.range(0x0000, -0x0001), false,
+					.clear(Lifespan.span(7, 8), b.range(0x0000, -0x0001), false,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(manager.definedUnits().getAt(7, b.addr(0x4000)));
 		assertNull(manager.definedUnits().getAt(7, b.addr(0x4004)));
 		assertNull(manager.definedUnits().getAt(7, b.addr(0x4008)));
-		assertEquals(Range.closed(0L, 6L), d4000.getLifespan());
-		assertEquals(Range.closed(0L, 5L), d4004.getLifespan());
-		assertEquals(Range.closed(0L, 6L), i4008.getLifespan());
+		assertEquals(Lifespan.span(0, 6), d4000.getLifespan());
+		assertEquals(Lifespan.span(0, 5), d4004.getLifespan());
+		assertEquals(Lifespan.span(0, 6), i4008.getLifespan());
 
 		b.trace.undo();
 		d4000 = manager.definedData().getAt(0, b.addr(0x4000));
@@ -1616,15 +1613,15 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		assertEquals(d4000, manager.definedUnits().getAt(7, b.addr(0x4000)));
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.definedUnits()
-					.clear(Range.closed(7L, 8L), b.range(0x4000, 0x4000), false,
+					.clear(Lifespan.span(7, 8), b.range(0x4000, 0x4000), false,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(manager.definedUnits().getAt(7, b.addr(0x4000)));
 		assertEquals(d4004, manager.definedUnits().getAt(5, b.addr(0x4004)));
 		assertEquals(i4008, manager.definedUnits().getAt(7, b.addr(0x4008)));
-		assertEquals(Range.closed(0L, 6L), d4000.getLifespan());
-		assertEquals(Range.closed(0L, 5L), d4004.getLifespan());
-		assertEquals(Range.closed(0L, 9L), i4008.getLifespan());
+		assertEquals(Lifespan.span(0, 6), d4000.getLifespan());
+		assertEquals(Lifespan.span(0, 5), d4004.getLifespan());
+		assertEquals(Lifespan.span(0, 9), i4008.getLifespan());
 
 		b.trace.undo();
 		d4000 = manager.definedData().getAt(0, b.addr(0x4000));
@@ -1634,7 +1631,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		assertEquals(d4000, manager.definedUnits().getAt(0, b.addr(0x4000)));
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.instructions()
-					.clear(Range.all(), b.range(0x0000, -0x0001), false,
+					.clear(Lifespan.ALL, b.range(0x0000, -0x0001), false,
 						TaskMonitor.DUMMY);
 		}
 		assertEquals(d4000, manager.definedUnits().getAt(0, b.addr(0x4000)));
@@ -1649,7 +1646,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		assertEquals(d4000, manager.definedUnits().getAt(0, b.addr(0x4000)));
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.definedData()
-					.clear(Range.all(), b.range(0x0000, -0x0001), false,
+					.clear(Lifespan.ALL, b.range(0x0000, -0x0001), false,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(manager.definedUnits().getAt(0, b.addr(0x4000)));
@@ -1674,12 +1671,12 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 			d4000.setEndSnap(9);
 			d4004 = b.addData(0, b.addr(0x4004), IntegerDataType.dataType, b.buf(5, 6, 7, 8));
 			d4004.setEndSnap(5);
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xf4, 0));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xf4, 0));
 			i4008.setEndSnap(9);
 
 			// Clear one of the data before a context space is created
 			manager.definedUnits()
-					.clear(Range.all(), b.range(0x4004, 0x4004), true,
+					.clear(Lifespan.ALL, b.range(0x4004, 0x4004), true,
 						TaskMonitor.DUMMY);
 
 			i4008.setRegisterValue(rvOne);
@@ -1689,7 +1686,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.instructions()
-					.clear(Range.all(), b.range(0x0000, -0x0001), true,
+					.clear(Lifespan.ALL, b.range(0x0000, -0x0001), true,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(ctxManager.getValue(b.language, r4, 0, b.addr(0x4008)));
@@ -1700,7 +1697,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 
 		try (UndoableTransaction tid = b.startTransaction()) {
 			manager.instructions()
-					.clear(Range.closed(7L, 7L), b.range(0x0000, -0x0001), true,
+					.clear(Lifespan.span(7, 7), b.range(0x0000, -0x0001), true,
 						TaskMonitor.DUMMY);
 		}
 		assertNull(ctxManager.getValue(b.language, r4, 7, b.addr(0x4008)));
@@ -1708,22 +1705,21 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	}
 
 	@Test
-	@Ignore("Looks related to GP-479")
 	public void testAddGuestInstructionThenRemoveAndDelete() throws AddressOverflowException,
 			CodeUnitInsertionException, IOException, CancelledException {
-		DBTraceLanguageManager langMan = b.trace.getLanguageManager();
+		DBTracePlatformManager langMan = b.trace.getPlatformManager();
 		Language x86 = getSLEIGH_X86_LANGUAGE();
-		DBTraceGuestLanguage guest;
-		DBTraceGuestLanguageMappedRange mappedRange;
+		DBTraceGuestPlatform guest;
+		DBTraceGuestPlatformMappedRange mappedRange;
 
 		TraceInstruction g4000;
 		TraceInstruction i4001;
 		TraceData d4003;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			guest = langMan.addGuestLanguage(x86);
+			guest = langMan.addGuestPlatform(x86.getDefaultCompilerSpec());
 			mappedRange = guest.addMappedRange(b.addr(0x0000), b.addr(guest, 0x0000), 1L << 32);
-			g4000 = b.addInstruction(0, b.addr(0x4000), x86, b.buf(0x90));
-			i4001 = b.addInstruction(0, b.addr(0x4001), b.language, b.buf(0xf4, 0));
+			g4000 = b.addInstruction(0, b.addr(0x4000), guest, b.buf(0x90));
+			i4001 = b.addInstruction(0, b.addr(0x4001), b.host, b.buf(0xf4, 0));
 			d4003 = b.addData(0, b.addr(0x4003), LongDataType.dataType, b.buf(1, 2, 3, 4));
 		}
 
@@ -1737,24 +1733,31 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 
 		b.trace.undo();
 
-		assertEquals(g4000, manager.codeUnits().getAt(0, b.addr(0x4000)));
+		// NB. The range deletion also deletes the guest unit, so it'll have a new identity
+		// TODO: Related to GP-479?
+		g4000 = manager.instructions().getAt(0, b.addr(0x4000));
+		assertNotNull(g4000);
+		assertEquals(guest, g4000.getPlatform());
 		try (UndoableTransaction tid = b.startTransaction()) {
 			guest.delete(new ConsoleTaskMonitor());
 		}
 		assertUndefinedWithAddr(b.addr(0x4000), manager.codeUnits().getAt(0, b.addr(0x4000)));
-		assertEquals(i4001, manager.codeUnits().getAt(0, b.addr(0x4001)));
-		assertEquals(d4003, manager.codeUnits().getAt(0, b.addr(0x4003)));
+		// TODO: Definitely part of GP-479. These should be able to keep their identities.
+		//assertEquals(i4001, manager.codeUnits().getAt(0, b.addr(0x4001)));
+		//assertEquals(d4003, manager.codeUnits().getAt(0, b.addr(0x4003)));
+		assertNotNull(manager.instructions().getAt(0, b.addr(0x4001)));
+		assertNotNull(manager.definedData().getAt(0, b.addr(0x4003)));
 	}
 
 	@Test
 	public void testSaveAndLoad() throws Exception {
 		try (UndoableTransaction tid = b.startTransaction()) {
-			b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 
 			TraceThread thread = b.getOrAddThread("Thread 1", 0);
-			DBTraceCodeRegisterSpace regCode = manager.getCodeRegisterSpace(thread, true);
+			DBTraceCodeSpace regCode = manager.getCodeRegisterSpace(thread, true);
 			regCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r4"),
+					.create(Lifespan.nowOn(0), b.language.getRegister("r4"),
 						LongDataType.dataType);
 		}
 
@@ -1797,12 +1800,12 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 	@Test
 	public void testUndoThenRedo() throws Exception {
 		try (UndoableTransaction tid = b.startTransaction()) {
-			b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 
 			TraceThread thread = b.getOrAddThread("Thread 1", 0);
-			DBTraceCodeRegisterSpace regCode = manager.getCodeRegisterSpace(thread, true);
+			DBTraceCodeSpace regCode = manager.getCodeRegisterSpace(thread, true);
 			regCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r4"),
+					.create(Lifespan.nowOn(0), b.language.getRegister("r4"),
 						LongDataType.dataType);
 		}
 
@@ -1850,7 +1853,7 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 						b.trace.getBaseAddressFactory().getDefaultAddressSpace());
 			DBTraceCodeSpace space = manager.getCodeSpace(os, true);
 
-			b.addInstruction(0, os.getAddress(0x4004), b.language, b.buf(0xf4, 0));
+			b.addInstruction(0, os.getAddress(0x4004), b.host, b.buf(0xf4, 0));
 
 			List<CodeUnit> all = new ArrayList<>();
 			space.definedUnits().get(0, true).forEach(all::add);
@@ -1859,9 +1862,5 @@ public class DBTraceCodeManagerTest extends AbstractGhidraHeadlessIntegrationTes
 		}
 	}
 
-	// TODO: Test using a context-sensitive language
-	// TODO: Test using delay-slotted instructions (DBTraceCodemanager#instructionMax)
 	// TODO: How are lifespans of delay-slotted instructions bound to thatof the jump?
-	// TODO: In language manager, test deleting a language clears instructions
-	// TODO: In language manager, test unmapping a language clears instructions
 }

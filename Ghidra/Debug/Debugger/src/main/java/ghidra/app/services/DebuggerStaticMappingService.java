@@ -16,8 +16,7 @@
 package ghidra.app.services;
 
 import java.util.*;
-
-import com.google.common.collect.Range;
+import java.util.concurrent.CompletableFuture;
 
 import ghidra.app.services.ModuleMapProposal.ModuleMapEntry;
 import ghidra.app.services.RegionMapProposal.RegionMapEntry;
@@ -217,7 +216,7 @@ public interface DebuggerStaticMappingService {
 	 * @param truncateExisting true to delete or truncate the lifespan of overlapping entries. If
 	 *            false, overlapping entries are omitted.
 	 */
-	void addIdentityMapping(Trace from, Program toProgram, Range<Long> lifespan,
+	void addIdentityMapping(Trace from, Program toProgram, Lifespan lifespan,
 			boolean truncateExisting);
 
 	void addMapping(MapEntry<?, ?> entry, boolean truncateExisting)
@@ -401,6 +400,16 @@ public interface DebuggerStaticMappingService {
 	void removeChangeListener(DebuggerStaticMappingChangeListener l);
 
 	/**
+	 * Get a future which completes when pending changes have all settled
+	 * 
+	 * <p>
+	 * The returned future completes after all change listeners have been invoked.
+	 * 
+	 * @return the future
+	 */
+	CompletableFuture<Void> changesSettled();
+
+	/**
 	 * Collect likely matches for destination programs for the given trace module
 	 * 
 	 * <p>
@@ -453,7 +462,7 @@ public interface DebuggerStaticMappingService {
 	 * 
 	 * <p>
 	 * Note, this method will first examine module and program names in order to cull unlikely
-	 * pairs. If then takes the best-scored proposal for each module. If a module has no likely
+	 * pairs. It then takes the best-scored proposal for each module. If a module has no likely
 	 * paired program, then it is omitted from the result, i.e.., the returned map will have no
 	 * {@code null} values.
 	 * 

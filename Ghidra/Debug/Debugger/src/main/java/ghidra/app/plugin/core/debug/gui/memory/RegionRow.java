@@ -15,10 +15,9 @@
  */
 package ghidra.app.plugin.core.debug.gui.memory;
 
-import com.google.common.collect.Range;
-
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressRange;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.memory.TraceMemoryRegion;
 import ghidra.util.database.UndoableTransaction;
 
@@ -35,9 +34,8 @@ public class RegionRow {
 
 	public void setName(String name) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(region.getTrace(), "Renamed region", true)) {
+			UndoableTransaction.start(region.getTrace(), "Rename region")) {
 			region.setName(name);
-			tid.commit();
 		}
 	}
 
@@ -45,7 +43,7 @@ public class RegionRow {
 		return region.getName();
 	}
 
-	public Range<Long> getLifespan() {
+	public Lifespan getLifespan() {
 		return region.getLifespan();
 	}
 
@@ -76,7 +74,7 @@ public class RegionRow {
 
 	public void setRead(boolean read) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(region.getTrace(), "Toggle region read flag", true)) {
+			UndoableTransaction.start(region.getTrace(), "Toggle region read flag")) {
 			region.setRead(read);
 		}
 	}
@@ -87,7 +85,7 @@ public class RegionRow {
 
 	public void setWrite(boolean write) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(region.getTrace(), "Toggle region write flag", true)) {
+			UndoableTransaction.start(region.getTrace(), "Toggle region write flag")) {
 			region.setWrite(write);
 		}
 	}
@@ -98,7 +96,7 @@ public class RegionRow {
 
 	public void setExecute(boolean execute) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(region.getTrace(), "Toggle region execute flag", true)) {
+			UndoableTransaction.start(region.getTrace(), "Toggle region execute flag")) {
 			region.setExecute(execute);
 		}
 	}
@@ -109,7 +107,7 @@ public class RegionRow {
 
 	public void setVolatile(boolean vol) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(region.getTrace(), "Toggle region volatile flag", true)) {
+			UndoableTransaction.start(region.getTrace(), "Toggle region volatile flag")) {
 			region.setVolatile(vol);
 		}
 	}

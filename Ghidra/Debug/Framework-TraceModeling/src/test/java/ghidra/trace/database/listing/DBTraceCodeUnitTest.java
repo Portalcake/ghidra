@@ -23,11 +23,7 @@ import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import org.apache.commons.lang3.tuple.ImmutablePair;
-import org.apache.commons.lang3.tuple.Pair;
 import org.junit.*;
-
-import com.google.common.collect.Range;
 
 import db.IntField;
 import db.StringField;
@@ -42,15 +38,14 @@ import ghidra.program.model.listing.*;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.CodeUnitInsertionException;
-import ghidra.program.model.util.TypeMismatchException;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.trace.database.ToyDBTraceBuilder;
 import ghidra.trace.database.listing.DBTraceCommentAdapter.DBTraceCommentEntry;
 import ghidra.trace.database.map.DBTraceAddressSnapRangePropertyMapTree.TraceAddressSnapRangeQuery;
-import ghidra.trace.database.memory.DBTraceMemoryRegisterSpace;
 import ghidra.trace.database.memory.DBTraceMemorySpace;
 import ghidra.trace.database.symbol.DBTraceReference;
-import ghidra.trace.model.language.TraceGuestLanguage;
+import ghidra.trace.model.Lifespan;
+import ghidra.trace.model.guest.TraceGuestPlatform;
 import ghidra.trace.model.listing.TraceData;
 import ghidra.trace.model.listing.TraceInstruction;
 import ghidra.trace.model.memory.TraceMemoryFlag;
@@ -62,7 +57,7 @@ import ghidra.util.*;
 import ghidra.util.database.UndoableTransaction;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.NoValueException;
-import ghidra.util.prop.PropertyVisitor;
+import ghidra.util.map.TypeMismatchException;
 
 public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		implements Unfinished {
@@ -145,56 +140,6 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		}
 	}
 
-	protected static class TestPropertyVisitor implements PropertyVisitor {
-		Class<?> type = null;
-		Object val = null;
-
-		Pair<Class<?>, Object> getAndReset() {
-			Pair<Class<?>, Object> ret = new ImmutablePair<>(type, val);
-			type = null;
-			val = null;
-			return ret;
-		}
-
-		boolean isSet() {
-			return type != null;
-		}
-
-		@Override
-		public void visit() {
-			assertNull(type);
-			type = Void.class;
-		}
-
-		@Override
-		public void visit(String value) {
-			assertNull(type);
-			type = String.class;
-			val = value;
-		}
-
-		@Override
-		public void visit(Object value) {
-			assertNull(type);
-			type = Object.class;
-			val = value;
-		}
-
-		@Override
-		public void visit(Saveable value) {
-			assertNull(type);
-			type = Saveable.class;
-			val = value;
-		}
-
-		@Override
-		public void visit(int value) {
-			assertNull(type);
-			type = Integer.class;
-			val = value;
-		}
-	}
-
 	protected static <T> Set<T> set(Iterator<T> it) {
 		Set<T> result = new HashSet<>();
 		while (it.hasNext()) {
@@ -242,7 +187,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			TraceOverlappedRegionException, DuplicateNameException {
 		TraceInstruction ins;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			ins = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			ins = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 		}
 		TraceData und = manager.undefinedData().getAt(0, b.addr(0x4006));
 
@@ -255,9 +200,9 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		assertEquals(b.addr(0x4006), und.getMaxAddress());
 
 		assertEquals(0, ins.getStartSnap());
-		assertEquals(Range.atLeast(0L), ins.getLifespan());
+		assertEquals(Lifespan.nowOn(0), ins.getLifespan());
 		assertEquals(0, und.getStartSnap());
-		assertEquals(Range.closed(0L, 0L), und.getLifespan());
+		assertEquals(Lifespan.at(0), und.getLifespan());
 
 		// NOTE: Seems wrong. If so, problem is in Address, not TraceCodeUnit
 		assertEquals("00004004", ins.getAddressString(false, false));
@@ -267,7 +212,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 
 		try (UndoableTransaction tid = b.startTransaction()) {
 			b.trace.getMemoryManager()
-					.addRegion(".text", Range.atLeast(0L),
+					.addRegion(".text", Lifespan.nowOn(0),
 						b.range(0x4000, 0x4fff), TraceMemoryFlag.READ);
 		}
 
@@ -281,7 +226,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	public void testGetProgram() throws CodeUnitInsertionException {
 		TraceInstruction i4004;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 		}
 
 		assertEquals(0, i4004.getProgram().getSnap());
@@ -291,7 +236,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	public void testGetMemory() throws CodeUnitInsertionException {
 		TraceInstruction i4004;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 		}
 
 		assertEquals(i4004.getProgram().getMemory(), i4004.getMemory());
@@ -300,14 +245,14 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	@Test
 	public void testIsBigEndian() throws CodeUnitInsertionException, AddressOverflowException {
 		Language x86 = getSLEIGH_X86_LANGUAGE();
-		TraceGuestLanguage guest;
+		TraceGuestPlatform guest;
 		TraceInstruction i4004;
 		TraceInstruction g4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			guest = b.trace.getLanguageManager().addGuestLanguage(x86);
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			guest = b.trace.getPlatformManager().addGuestPlatform(x86.getDefaultCompilerSpec());
 			guest.addMappedRange(b.addr(0x0000), b.addr(guest, 0x0000), 1L << 32);
-			g4006 = b.addInstruction(0, b.addr(0x4006), x86, b.buf(0x90));
+			g4006 = b.addInstruction(0, b.addr(0x4006), guest, b.buf(0x90));
 		}
 
 		assertTrue(i4004.isBigEndian());
@@ -319,8 +264,8 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceInstruction i4004;
 		TraceInstruction i4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			i4006 = b.addInstruction(0, b.addr(0x4006), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			i4006 = b.addInstruction(0, b.addr(0x4006), b.host, b.buf(0xf4, 0));
 		}
 		assertFalse(i4004.hasProperty("myVoid"));
 
@@ -410,24 +355,6 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			set(i4004.propertyNames()));
 		assertEquals(Set.of(), set(i4006.propertyNames()));
 
-		TestPropertyVisitor visitor = new TestPropertyVisitor();
-
-		i4004.visitProperty(visitor, "noProperty");
-		assertFalse(visitor.isSet());
-		i4004.visitProperty(visitor, "myVoid");
-		assertEquals(new ImmutablePair<>(Void.class, null), visitor.getAndReset());
-		i4006.visitProperty(visitor, "myVoid");
-		assertFalse(visitor.isSet());
-		i4004.visitProperty(visitor, "myInt");
-		assertEquals(new ImmutablePair<>(Integer.class, 0x1234), visitor.getAndReset());
-		i4006.visitProperty(visitor, "myInt");
-		assertFalse(visitor.isSet());
-		i4004.visitProperty(visitor, "myString");
-		assertEquals(new ImmutablePair<>(String.class, "Hello!"), visitor.getAndReset());
-		i4004.visitProperty(visitor, "mySaveable");
-		assertEquals(new ImmutablePair<>(Saveable.class, new TestSaveable(0x5678, "Good bye!")),
-			visitor.getAndReset());
-
 		try (UndoableTransaction tid = b.startTransaction()) {
 			i4004.removeProperty("myVoid");
 			i4006.removeProperty("myVoid"); // NOP
@@ -455,8 +382,8 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceInstruction i4004;
 		TraceInstruction i4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			i4006 = b.addInstruction(0, b.addr(0x4006), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			i4006 = b.addInstruction(0, b.addr(0x4006), b.host, b.buf(0xf4, 0));
 		}
 
 		try (UndoableTransaction tid = b.startTransaction()) {
@@ -508,24 +435,24 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			i4004.setEndSnap(9);
 			i4006.setEndSnap(9);
 			// TODO: Decide whether or not to shrink the comment lifespan with the unit lifespan 
-			assertEquals(Range.atLeast(0L), c4004.getLifespan());
+			assertEquals(Lifespan.nowOn(0), c4004.getLifespan());
 
-			i4004_10 = b.addInstruction(10, b.addr(0x4004), b.language);
+			i4004_10 = b.addInstruction(10, b.addr(0x4004), b.host);
 			i4004_10.setComment(CodeUnit.PRE_COMMENT, "Get this back in the mix");
 			i4004_10.setComment(CodeUnit.EOL_COMMENT, "A different comment");
 		}
-		assertEquals(Range.closed(0L, 9L), c4004.getLifespan());
+		assertEquals(Lifespan.span(0, 9), c4004.getLifespan());
 		assertEquals("My EOL Comment", i4004.getComment(CodeUnit.EOL_COMMENT));
 
 		try (UndoableTransaction tid = b.startTransaction()) {
-			commentAdapter.clearComments(Range.atLeast(0L), b.range(0x4000, 0x5000),
+			commentAdapter.clearComments(Lifespan.nowOn(0), b.range(0x4000, 0x5000),
 				CodeUnit.EOL_COMMENT);
 		}
 		assertNull(i4004.getComment(CodeUnit.EOL_COMMENT));
 		assertEquals("Get this back in the mix", i4004_10.getComment(CodeUnit.PRE_COMMENT));
 
 		try (UndoableTransaction tid = b.startTransaction()) {
-			commentAdapter.clearComments(Range.atLeast(0L), b.range(0x4000, 0x5000),
+			commentAdapter.clearComments(Lifespan.nowOn(0), b.range(0x4000, 0x5000),
 				CodeUnit.NO_COMMENT);
 		}
 		assertNull(i4004.getComment(CodeUnit.EOL_COMMENT));
@@ -538,8 +465,8 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceInstruction i4006;
 		TraceData d4008;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			i4006 = b.addInstruction(0, b.addr(0x4006), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			i4006 = b.addInstruction(0, b.addr(0x4006), b.host, b.buf(0xf4, 0));
 			d4008 = b.addData(0, b.addr(0x4008), LongDataType.dataType, b.buf(1, 2, 3, 4));
 		}
 
@@ -564,8 +491,8 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceInstruction i4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			i4006 = b.addInstruction(0, b.addr(0x4006), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			i4006 = b.addInstruction(0, b.addr(0x4006), b.host, b.buf(0xf4, 0));
 		}
 		Set<TraceReference> refs;
 
@@ -576,7 +503,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		refs = set(d4000.getValueReferences());
 		assertEquals(1, refs.size());
 		TraceReference valueRef = refs.iterator().next();
-		assertEquals(Range.atLeast(0L), valueRef.getLifespan());
+		assertEquals(Lifespan.nowOn(0), valueRef.getLifespan());
 		assertEquals(b.addr(0x4000), valueRef.getFromAddress());
 		assertEquals(b.addr(0x5000), valueRef.getToAddress());
 		assertEquals(RefType.DATA, valueRef.getReferenceType());
@@ -590,7 +517,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		refs = set(i4004.getMnemonicReferences());
 		assertEquals(1, refs.size());
 		TraceReference mnemRef = refs.iterator().next();
-		assertEquals(Range.atLeast(0L), mnemRef.getLifespan());
+		assertEquals(Lifespan.nowOn(0), mnemRef.getLifespan());
 		assertEquals(b.addr(0x4004), mnemRef.getFromAddress());
 		assertEquals(b.addr(0x5000), mnemRef.getToAddress());
 		assertEquals(RefType.READ, mnemRef.getReferenceType());
@@ -607,7 +534,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		assertEquals(1, refs.size());
 		assertEquals(0, i4004.getOperandReferences(1).length);
 		TraceReference opRef = refs.iterator().next();
-		assertEquals(Range.atLeast(0L), opRef.getLifespan());
+		assertEquals(Lifespan.nowOn(0), opRef.getLifespan());
 		assertEquals(b.addr(0x4004), opRef.getFromAddress());
 		assertEquals(b.addr(0x5001), opRef.getToAddress());
 		assertEquals(RefType.WRITE, opRef.getReferenceType());
@@ -623,7 +550,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		assertTrue(refs.remove(mnemRef));
 		TraceStackReference stackRef = (TraceStackReference) refs.iterator().next();
 		assertTrue(stackRef.isStackReference());
-		assertEquals(Range.atLeast(0L), stackRef.getLifespan());
+		assertEquals(Lifespan.nowOn(0), stackRef.getLifespan());
 		assertEquals(b.addr(0x4004), stackRef.getFromAddress());
 		assertEquals(-0x30, stackRef.getStackOffset());
 		assertEquals(RefType.READ, stackRef.getReferenceType());
@@ -640,7 +567,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		assertTrue(refs.remove(stackRef));
 		TraceReference regRef = refs.iterator().next();
 		assertTrue(regRef.isRegisterReference());
-		assertEquals(Range.atLeast(0L), regRef.getLifespan());
+		assertEquals(Lifespan.nowOn(0), regRef.getLifespan());
 		assertEquals(b.addr(0x4004), regRef.getFromAddress());
 		assertEquals(b.language.getRegister("r4").getAddress(), regRef.getToAddress());
 		assertEquals(RefType.READ, regRef.getReferenceType());
@@ -657,7 +584,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		DBTraceReference refTo;
 		try (UndoableTransaction tid = b.startTransaction()) {
 			refTo = b.trace.getReferenceManager()
-					.addMemoryReference(Range.all(), b.addr(0x3000),
+					.addMemoryReference(Lifespan.ALL, b.addr(0x3000),
 						b.addr(0x4004), RefType.COMPUTED_JUMP, SourceType.USER_DEFINED,
 						CodeUnit.MNEMONIC);
 		}
@@ -708,13 +635,13 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceData undefined;
 		TraceData undReg;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			instruction = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			instruction = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 			undefined = manager.undefinedData().getAt(0, b.addr(0x4006));
 
 			thread = b.getOrAddThread("Thread 1", 0);
-			DBTraceCodeRegisterSpace regCode = manager.getCodeRegisterSpace(thread, true);
+			DBTraceCodeSpace regCode = manager.getCodeRegisterSpace(thread, true);
 			data = regCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r4"),
+					.create(Lifespan.nowOn(0), b.language.getRegister("r4"),
 						LongDataType.dataType);
 			// getForRegister requires unit to match size
 			undReg = regCode.undefinedData().getAt(0, b.language.getRegister("r5").getAddress());
@@ -739,19 +666,19 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceInstruction i4004;
 		try (UndoableTransaction tid = b.startTransaction()) {
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 
 			d4000.setEndSnap(9);
-			assertEquals(Range.closed(0L, 9L), d4000.getLifespan());
+			assertEquals(Lifespan.span(0, 9), d4000.getLifespan());
 
 			i4004.setEndSnap(9);
-			assertEquals(Range.closed(0L, 9L), i4004.getLifespan());
+			assertEquals(Lifespan.span(0, 9), i4004.getLifespan());
 
 			d4000.setEndSnap(0);
-			assertEquals(Range.closed(0L, 0L), d4000.getLifespan());
+			assertEquals(Lifespan.span(0, 0), d4000.getLifespan());
 
 			i4004.setEndSnap(0);
-			assertEquals(Range.closed(0L, 0L), i4004.getLifespan());
+			assertEquals(Lifespan.span(0, 0), i4004.getLifespan());
 
 			try {
 				i4004.setEndSnap(-1);
@@ -784,7 +711,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	@Test
 	public void testGetBytes() throws Exception {
 		Language x86 = getSLEIGH_X86_LANGUAGE();
-		TraceGuestLanguage guest;
+		TraceGuestPlatform guest;
 
 		TraceData data;
 		TraceData und;
@@ -796,16 +723,16 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			und = manager.undefinedData().getAt(0, b.data(0x7fff));
 
 			TraceThread thread = b.getOrAddThread("Thread1", 0);
-			DBTraceMemoryRegisterSpace regMem =
+			DBTraceMemorySpace regMem =
 				b.trace.getMemoryManager().getMemoryRegisterSpace(thread, true);
 			Register r4 = b.language.getRegister("r4");
 			regMem.putBytes(0, r4, b.buf(1, 2, 3, 4, 5, 6, 7, 8));
-			DBTraceCodeRegisterSpace regCode = manager.getCodeRegisterSpace(thread, true);
-			reg = regCode.definedData().create(Range.atLeast(0L), r4, PointerDataType.dataType);
+			DBTraceCodeSpace regCode = manager.getCodeRegisterSpace(thread, true);
+			reg = regCode.definedData().create(Lifespan.nowOn(0), r4, PointerDataType.dataType);
 
-			guest = b.trace.getLanguageManager().addGuestLanguage(x86);
+			guest = b.trace.getPlatformManager().addGuestPlatform(x86.getDefaultCompilerSpec());
 			guest.addMappedRange(b.addr(0x0000), b.addr(guest, 0x0000), 1L << 32);
-			lil = b.addInstruction(0, b.addr(0x4008), x86, b.buf(0xeb, 0xfe));
+			lil = b.addInstruction(0, b.addr(0x4008), guest, b.buf(0xeb, 0xfe));
 		}
 		ByteBuffer buf;
 
@@ -898,7 +825,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		try (UndoableTransaction tid = b.startTransaction()) {
 			// StringDataType accesses memory via program view, so "block" must exist
 			b.trace.getMemoryManager()
-					.addRegion("myRegion", Range.atLeast(0L),
+					.addRegion("myRegion", Lifespan.nowOn(0),
 						b.range(0x4000, 0x4fff), TraceMemoryFlag.READ);
 
 			dl4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
@@ -1036,16 +963,16 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		try (UndoableTransaction tid = b.startTransaction()) {
 			// Disassembler's new cacheing in mem-buffer uses program view, so "block" must exist
 			b.trace.getMemoryManager()
-					.addRegion("myRegion", Range.atLeast(0L),
+					.addRegion("myRegion", Lifespan.nowOn(0),
 						b.range(0x4000, 0x4fff), TraceMemoryFlag.READ);
 
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xc8, 0x47));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xc8, 0x47));
 			assertEquals("add r4,#0x7", i4004.toString());
-			i4006 = b.addInstruction(0, b.addr(0x4006), b.language, b.buf(0xf4, 0));
+			i4006 = b.addInstruction(0, b.addr(0x4006), b.host, b.buf(0xf4, 0));
 			assertEquals("ret", i4006.toString());
-			i4008 = b.addInstruction(0, b.addr(0x4008), b.language, b.buf(0xff, 0xfc));
+			i4008 = b.addInstruction(0, b.addr(0x4008), b.host, b.buf(0xff, 0xfc));
 			assertEquals("call 0x00004004", i4008.toString());
-			i400a = b.addInstruction(0, b.addr(0x400a), b.language, b.buf(0xf6, 0x40));
+			i400a = b.addInstruction(0, b.addr(0x400a), b.host, b.buf(0xf6, 0x40));
 			assertEquals("call r4", i400a.toString());
 		}
 
@@ -1191,7 +1118,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 
 		TraceInstruction i4004;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 		}
 
 		// TODO: Test with non-default context
@@ -1240,7 +1167,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceData d4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 			d4006 = b.addData(0, b.addr(0x4006), PointerDataType.dataType,
 				b.buf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00));
 		}
@@ -1260,7 +1187,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		TraceData d4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
 			d4006 = b.addData(0, b.addr(0x4006), PointerDataType.dataType,
 				b.buf(0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00));
 		}
@@ -1285,14 +1212,14 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	@Test
 	public void testGetLanguage() throws CodeUnitInsertionException, AddressOverflowException {
 		Language x86 = getSLEIGH_X86_LANGUAGE();
-		TraceGuestLanguage guest;
+		TraceGuestPlatform guest;
 		TraceInstruction i4004;
 		TraceInstruction g4006;
 		try (UndoableTransaction tid = b.startTransaction()) {
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xf4, 0));
-			guest = b.trace.getLanguageManager().addGuestLanguage(x86);
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xf4, 0));
+			guest = b.trace.getPlatformManager().addGuestPlatform(x86.getDefaultCompilerSpec());
 			guest.addMappedRange(b.addr(0x0000), b.addr(guest, 0x0000), 1L << 32);
-			g4006 = b.addInstruction(0, b.addr(0x4006), x86, b.buf(0x90));
+			g4006 = b.addInstruction(0, b.addr(0x4006), guest, b.buf(0x90));
 		}
 		TraceData u4007 = manager.undefinedData().getAt(0, b.addr(0x4007));
 
@@ -1305,7 +1232,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 	public void testToString() throws CodeUnitInsertionException, AddressOverflowException,
 			TraceOverlappedRegionException, DuplicateNameException {
 		Language x86 = getSLEIGH_X86_LANGUAGE();
-		TraceGuestLanguage guest;
+		TraceGuestPlatform guest;
 		TraceData d4000;
 		TraceInstruction i4004;
 		TraceInstruction g4006;
@@ -1313,16 +1240,16 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		try (UndoableTransaction tid = b.startTransaction()) {
 			// Disassembler's new cacheing in mem-buffer uses program view, so "block" must exist
 			b.trace.getMemoryManager()
-					.addRegion("myRegion", Range.atLeast(0L),
+					.addRegion("myRegion", Lifespan.nowOn(0),
 						b.range(0x4000, 0x4fff), TraceMemoryFlag.READ);
 
-			guest = b.trace.getLanguageManager().addGuestLanguage(x86);
+			guest = b.trace.getPlatformManager().addGuestPlatform(x86.getDefaultCompilerSpec());
 			guest.addMappedRange(b.addr(0x0000), b.addr(guest, 0x0000), 1L << 32);
 
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));
-			i4004 = b.addInstruction(0, b.addr(0x4004), b.language, b.buf(0xc8, 0x47));
-			g4006 = b.addInstruction(0, b.addr(0x4006), x86, b.buf(0x90));
-			i4007 = b.addInstruction(0, b.addr(0x4007), b.language, b.buf(0xff, 0xfd));
+			i4004 = b.addInstruction(0, b.addr(0x4004), b.host, b.buf(0xc8, 0x47));
+			g4006 = b.addInstruction(0, b.addr(0x4006), guest, b.buf(0x90));
+			i4007 = b.addInstruction(0, b.addr(0x4007), b.host, b.buf(0xff, 0xfd));
 		}
 		TraceData u4009 = manager.undefinedData().getAt(0, b.addr(0x4009));
 
@@ -1442,9 +1369,9 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			d4000 = b.addData(0, b.addr(0x4000), myStruct, b.buf(1, 2, 3, 4));
 
 			thread = b.getOrAddThread("Thread 1", 0);
-			DBTraceCodeRegisterSpace regCode = manager.getCodeRegisterSpace(thread, true);
+			DBTraceCodeSpace regCode = manager.getCodeRegisterSpace(thread, true);
 			dR4 = regCode.definedData()
-					.create(Range.atLeast(0L), b.language.getRegister("r4"),
+					.create(Lifespan.nowOn(0), b.language.getRegister("r4"),
 						myStruct);
 		}
 		myStruct = (Structure) b.trace.getDataTypeManager().getDataType("/myStruct");
@@ -1471,7 +1398,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 
 		assertEquals(b.language, d4000sB.getLanguage());
 
-		assertEquals(Range.atLeast(0L), d4000sB.getLifespan());
+		assertEquals(Lifespan.nowOn(0), d4000sB.getLifespan());
 
 		try {
 			dR4sB.setEndSnap(9);
@@ -1481,7 +1408,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 			// pass
 		}
 
-		assertEquals(0L, d4000sB.getStartSnap());
+		assertEquals(0, d4000sB.getStartSnap());
 
 		assertEquals(b.addr(0x4002), d4000sB.getAddress());
 		assertEquals(b.language.getRegister("r4").getAddress().add(3), dR4sB.getMaxAddress());
@@ -1669,7 +1596,7 @@ public class DBTraceCodeUnitTest extends AbstractGhidraHeadlessIntegrationTest
 		try (UndoableTransaction tid = b.startTransaction()) {
 			// StringDataType accesses memory via program view, so "block" must exist
 			b.trace.getMemoryManager()
-					.addRegion("myRegion", Range.atLeast(0L),
+					.addRegion("myRegion", Lifespan.nowOn(0),
 						b.range(0x4000, 0x4fff), TraceMemoryFlag.READ);
 
 			d4000 = b.addData(0, b.addr(0x4000), LongDataType.dataType, b.buf(1, 2, 3, 4));

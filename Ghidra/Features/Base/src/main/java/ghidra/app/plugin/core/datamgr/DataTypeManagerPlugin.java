@@ -38,7 +38,9 @@ import generic.util.Path;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
-import ghidra.app.plugin.core.datamgr.actions.*;
+import ghidra.app.plugin.core.datamgr.actions.RecentlyOpenedArchiveAction;
+import ghidra.app.plugin.core.datamgr.actions.UpdateSourceArchiveNamesAction;
+import ghidra.app.plugin.core.datamgr.actions.associate.*;
 import ghidra.app.plugin.core.datamgr.archive.*;
 import ghidra.app.plugin.core.datamgr.editor.DataTypeEditorManager;
 import ghidra.app.plugin.core.datamgr.tree.ArchiveNode;
@@ -54,7 +56,6 @@ import ghidra.framework.options.SaveState;
 import ghidra.framework.plugintool.PluginInfo;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.util.PluginStatus;
-import ghidra.program.database.DataTypeArchiveContentHandler;
 import ghidra.program.database.data.ProgramDataTypeManager;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.*;
@@ -94,7 +95,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	private DataTypeManagerHandler dataTypeManagerHandler;
 	private DataTypesProvider provider;
-	private OpenVersionedFileDialog openDialog;
+	private OpenVersionedFileDialog<DataTypeArchive> openDialog;
 
 	private Map<String, DockingAction> recentlyOpenedArchiveMap;
 	private Map<String, DockingAction> installArchiveMap;
@@ -103,7 +104,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	private DataTypePropertyManager dataTypePropertyManager;
 
 	public DataTypeManagerPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 	}
 
 	@Override
@@ -243,8 +244,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		Project project = tool.getProjectManager().getActiveProject();
 		if (project != null && project.getName().equals(projectName)) {
 			DomainFile df = project.getProjectData().getFile(pathname);
-			if (df != null && DataTypeArchiveContentHandler.DATA_TYPE_ARCHIVE_CONTENT_TYPE
-					.equals(df.getContentType())) {
+			if (DataTypeArchive.class.isAssignableFrom(df.getDomainObjectClass())) {
 				return df;
 			}
 		}
@@ -569,6 +569,10 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 		return dataTypeManagerHandler.openArchive(archiveName);
 	}
 
+	public List<Archive> getAllArchives() {
+		return dataTypeManagerHandler.getAllArchives();
+	}
+
 	public void openProjectDataTypeArchive() {
 		if (openDialog == null) {
 			ActionListener listener = ev -> {
@@ -582,12 +586,9 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 					openArchive(domainFile, version);
 				}
 			};
-			DomainFileFilter filter = f -> {
-				Class<?> c = f.getDomainObjectClass();
-				return DataTypeArchive.class.isAssignableFrom(c);
-			};
 			openDialog =
-				new OpenVersionedFileDialog(tool, "Open Project Data Type Archive", filter);
+				new OpenVersionedFileDialog<>(tool, "Open Project Data Type Archive",
+					DataTypeArchive.class);
 			openDialog.setHelpLocation(new HelpLocation(HelpTopics.PROGRAM, "Open_File_Dialog"));
 			openDialog.addOkActionListener(listener);
 		}
@@ -611,11 +612,11 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 
 	@Override
 	public void setDataTypeSelected(DataType dataType) {
-		Swing.runIfSwingOrRunLater(() -> {
-			if (provider.isVisible()) {
-				provider.setDataTypeSelected(dataType);
-			}
-		});
+		if (provider.isVisible()) {
+			// this is a service method, ensure it is on the Swing thread, since it interacts with
+			// Swing components
+			Swing.runIfSwingOrRunLater(() -> provider.setDataTypeSelected(dataType));
+		}
 	}
 
 	@Override
@@ -726,7 +727,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 			return null;
 		}
 		DataTypesActionContext dtContext = (DataTypesActionContext) context;
-		GTreeNode selectedNode = dtContext.getSelectedNode();
+		GTreeNode selectedNode = dtContext.getClickedNode();
 		if (!(selectedNode instanceof ArchiveNode)) {
 			return null;
 		}

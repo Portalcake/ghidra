@@ -47,6 +47,8 @@ import agent.dbgeng.model.iface2.DbgModelTargetObject;
 import agent.dbgeng.model.iface2.DbgModelTargetThread;
 import ghidra.async.*;
 import ghidra.comm.util.BitmaskSet;
+import ghidra.dbg.target.TargetLauncher.CmdLineParser;
+import ghidra.dbg.target.TargetLauncher.TargetCmdLineLauncher;
 import ghidra.dbg.target.TargetObject;
 import ghidra.dbg.util.HandlerMap;
 import ghidra.lifecycle.Internal;
@@ -116,6 +118,7 @@ public class DbgManagerImpl implements DbgManager {
 	private DbgThread eventThread;
 	private volatile boolean waiting = false;
 	private boolean kernelMode = false;
+	private boolean altMemoryQuery = false;
 	private boolean ignoreEventThread = false;
 	private CompletableFuture<String> continuation;
 	private long processCount = 0;
@@ -139,11 +142,16 @@ public class DbgManagerImpl implements DbgManager {
 	}
 
 	public DbgThreadImpl getThreadComputeIfAbsent(DebugThreadId id, DbgProcessImpl process,
-			int tid) {
+			int tid, boolean fire) {
 		synchronized (threads) {
 			if (!threads.containsKey(id)) {
 				DbgThreadImpl thread = new DbgThreadImpl(this, process, id, tid);
 				thread.add();
+				if (fire) {
+					Causes cause = DbgCause.Causes.UNCLAIMED;
+					getEventListeners().fire.threadCreated(thread, cause);
+					getEventListeners().fire.threadSelected(thread, null, cause);
+				}
 			}
 			return threads.get(id);
 		}
@@ -208,11 +216,14 @@ public class DbgManagerImpl implements DbgManager {
 		}
 	}
 
-	public DbgProcessImpl getProcessComputeIfAbsent(DebugProcessId id, int pid) {
+	public DbgProcessImpl getProcessComputeIfAbsent(DebugProcessId id, int pid, boolean fire) {
 		synchronized (processes) {
 			if (!processes.containsKey(id)) {
 				DbgProcessImpl process = new DbgProcessImpl(this, id, pid);
 				process.add();
+				if (fire) {
+					getEventListeners().fire.processAdded(process, DbgCause.Causes.UNCLAIMED);
+				}
 			}
 			return processes.get(id);
 		}
@@ -245,11 +256,14 @@ public class DbgManagerImpl implements DbgManager {
 		}
 	}
 
-	public DbgSessionImpl getSessionComputeIfAbsent(DebugSessionId id) {
+	public DbgSessionImpl getSessionComputeIfAbsent(DebugSessionId id, boolean fire) {
 		synchronized (sessions) {
 			if (!sessions.containsKey(id) && id.id >= 0) {
 				DbgSessionImpl session = new DbgSessionImpl(this, id);
 				session.add();
+				if (fire) {
+					getEventListeners().fire.sessionAdded(session, DbgCause.Causes.UNCLAIMED);
+				}
 			}
 			return sessions.get(id);
 		}
@@ -635,11 +649,11 @@ public class DbgManagerImpl implements DbgManager {
 		lastEventInformation = control.getLastEventInformation();
 		lastEventInformation.setSession(esid);
 		lastEventInformation.setExecutingProcessorType(execType);
-		currentSession = eventSession = getSessionComputeIfAbsent(esid);
+		currentSession = eventSession = getSessionComputeIfAbsent(esid, true);
 		currentProcess =
-			eventProcess = getProcessComputeIfAbsent(epid, so.getCurrentProcessSystemId());
+			eventProcess = getProcessComputeIfAbsent(epid, so.getCurrentProcessSystemId(), true);
 		currentThread = eventThread = getThreadComputeIfAbsent(etid, (DbgProcessImpl) eventProcess,
-			so.getCurrentThreadSystemId());
+			so.getCurrentThreadSystemId(), false);
 		if (eventThread != null) {
 			((DbgThreadImpl) eventThread).setInfo(lastEventInformation);
 		}
@@ -714,9 +728,9 @@ public class DbgManagerImpl implements DbgManager {
 		DebugThreadId eventId = updateState();
 		DbgProcessImpl process = getCurrentProcess();
 		int tid = so.getCurrentThreadSystemId();
-		DbgThreadImpl thread = getThreadComputeIfAbsent(eventId, process, tid);
+		DbgThreadImpl thread = getThreadComputeIfAbsent(eventId, process, tid, true);
 		getEventListeners().fire.eventSelected(evt, evt.getCause());
-		getEventListeners().fire.threadCreated(thread, DbgCause.Causes.UNCLAIMED);
+		//getEventListeners().fire.threadCreated(thread, DbgCause.Causes.UNCLAIMED);
 		getEventListeners().fire.threadSelected(thread, null, evt.getCause());
 
 		String key = Integer.toHexString(eventId.id);
@@ -789,7 +803,7 @@ public class DbgManagerImpl implements DbgManager {
 		DebugProcessId id = so.getProcessIdByHandle(handle);
 		//so.setCurrentProcessId(id);
 		int pid = so.getCurrentProcessSystemId();
-		DbgProcessImpl proc = getProcessComputeIfAbsent(id, pid);
+		DbgProcessImpl proc = getProcessComputeIfAbsent(id, pid, true);
 		getEventListeners().fire.eventSelected(evt, evt.getCause());
 		getEventListeners().fire.processAdded(proc, evt.getCause());
 		getEventListeners().fire.processSelected(proc, evt.getCause());
@@ -797,9 +811,9 @@ public class DbgManagerImpl implements DbgManager {
 		handle = info.initialThreadInfo.handle;
 		DebugThreadId idt = so.getThreadIdByHandle(handle);
 		int tid = so.getCurrentThreadSystemId();
-		DbgThreadImpl thread = getThreadComputeIfAbsent(idt, proc, tid);
-		getEventListeners().fire.threadCreated(thread, evt.getCause());
-		getEventListeners().fire.threadSelected(thread, null, evt.getCause());
+		getThreadComputeIfAbsent(idt, proc, tid, true);
+		//getEventListeners().fire.threadCreated(thread, evt.getCause());
+		//getEventListeners().fire.threadSelected(thread, null, evt.getCause());
 
 		//proc.moduleLoaded(info.moduleInfo);
 		//getEventListeners().fire.moduleLoaded(proc, info.moduleInfo, evt.getCause());
@@ -1340,12 +1354,37 @@ public class DbgManagerImpl implements DbgManager {
 
 	@Override
 	public CompletableFuture<?> launch(List<String> args) {
-		return execute(new DbgLaunchProcessCommand(this, args));
+		BitmaskSet<DebugCreateFlags> cf = BitmaskSet.of(DebugCreateFlags.DEBUG_PROCESS);
+		BitmaskSet<DebugEngCreateFlags> ef =
+			BitmaskSet.of(DebugEngCreateFlags.DEBUG_ECREATE_PROCESS_DEFAULT);
+		BitmaskSet<DebugVerifierFlags> vf =
+			BitmaskSet.of(DebugVerifierFlags.DEBUG_VERIFIER_DEFAULT);
+		return execute(new DbgLaunchProcessCommand(this, args,
+			null, null, cf, ef, vf));
 	}
 
 	@Override
-	public CompletableFuture<Void> launch(Map<String, ?> args) {
-		return CompletableFuture.completedFuture(null);
+	public CompletableFuture<Void> launch(Map<String, ?> map) {
+		List<String> args =
+			CmdLineParser.tokenize(TargetCmdLineLauncher.PARAMETER_CMDLINE_ARGS.get(map));
+		String initDir = (String) map.get("dir");
+		String env = (String) map.get("env");
+
+		Integer cfVal = (Integer) map.get("cf");
+		Integer efVal = (Integer) map.get("ef");
+		Integer vfVal = (Integer) map.get("vf");
+		BitmaskSet<DebugCreateFlags> cf =
+			new BitmaskSet<DebugCreateFlags>(DebugCreateFlags.class,
+				cfVal == null ? 1 : cfVal);
+		BitmaskSet<DebugEngCreateFlags> ef =
+			new BitmaskSet<DebugEngCreateFlags>(DebugEngCreateFlags.class,
+				efVal == null ? 0 : efVal);
+		BitmaskSet<DebugVerifierFlags> vf =
+			new BitmaskSet<DebugVerifierFlags>(DebugVerifierFlags.class,
+				vfVal == null ? 0 : vfVal);
+		execute(new DbgLaunchProcessCommand(this, args,
+			initDir, env, cf, ef, vf));
+		return AsyncUtils.NIL;
 	}
 
 	public CompletableFuture<?> openFile(Map<String, ?> args) {
@@ -1604,6 +1643,14 @@ public class DbgManagerImpl implements DbgManager {
 
 	public void setKernelMode(boolean kernelMode) {
 		this.kernelMode = kernelMode;
+	}
+
+	public boolean useAltMemoryQuery() {
+		return altMemoryQuery;
+	}
+
+	public void setAltMemoryQuery(boolean altMemoryQuery) {
+		this.altMemoryQuery = altMemoryQuery;
 	}
 
 	public void setContinuation(CompletableFuture<String> continuation) {

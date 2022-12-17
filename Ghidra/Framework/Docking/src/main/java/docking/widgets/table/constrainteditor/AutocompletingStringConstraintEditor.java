@@ -26,10 +26,12 @@ import javax.swing.*;
 
 import org.apache.commons.lang3.StringUtils;
 
+import docking.DockingUtils;
 import docking.widgets.DropDownTextField;
 import docking.widgets.DropDownTextFieldDataModel;
 import docking.widgets.list.GListCellRenderer;
 import docking.widgets.table.constraint.*;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.util.HTMLUtilities;
 
 /**
@@ -61,6 +63,7 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 		textField = new DropDownTextField<>(autocompleter, 100);
 		textField.setIgnoreEnterKeyPress(true);
 		textField.getDocument().addUndoableEditListener(e -> valueChanged());
+		DockingUtils.installUndoRedo(textField);
 		panel.add(textField, BorderLayout.NORTH);
 		textField.addActionListener(e -> textField.closeDropDownWindow());
 
@@ -139,9 +142,8 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 				return Collections.emptyList();
 			}
 			searchText = searchText.trim();
-			lastConstraint =
-				(StringColumnConstraint) currentConstraint.parseConstraintValue(searchText,
-					columnDataSource.getTableDataSource());
+			lastConstraint = (StringColumnConstraint) currentConstraint
+					.parseConstraintValue(searchText, columnDataSource.getTableDataSource());
 
 			// Use a Collator to support languages other than English.
 			Collator collator = Collator.getInstance();
@@ -198,8 +200,8 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 	}
 
 	/**
-	 * Cell renderer for suggestion nominees. Substrings that match the models' query
-	 * are highlighted for ease-of-use.
+	 * Cell renderer for suggestion candidates. Substrings that match the models' query are
+	 * highlighted for ease-of-use.
 	 */
 	private class AutocompleteListCellRenderer extends GListCellRenderer<String> {
 
@@ -213,18 +215,19 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 		private String formatListValue(String value, boolean isSelected) {
 
 			Matcher matcher = model.lastConstraint.getHighlightMatcher(value);
-
-			Color color = isSelected ? Color.YELLOW : Color.MAGENTA;
-
+			Color color = isSelected ? Palette.YELLOW : Palette.MAGENTA;
 			StringBuilder sb = new StringBuilder("<html>");
 			// find and highlight all instances of the user-defined pattern
 			while (matcher.find()) {
 				String group = matcher.group(1);
-				String replacement = HTMLUtilities.colorString(color, HTMLUtilities.bold(group));
+
+				// escape all unescaped '\' and '$' chars, as Match.appendReplacement() will treat
+				// them as regex characters
+				String quoted = Matcher.quoteReplacement(group);
+				String replacement = HTMLUtilities.colorString(color, HTMLUtilities.bold(quoted));
 				matcher.appendReplacement(sb, replacement);
 			}
 			matcher.appendTail(sb);
-
 			return sb.toString();
 		}
 
@@ -238,7 +241,5 @@ public class AutocompletingStringConstraintEditor extends DataLoadingConstraintE
 			setText(valueString);
 			return this;
 		}
-
 	}
-
 }

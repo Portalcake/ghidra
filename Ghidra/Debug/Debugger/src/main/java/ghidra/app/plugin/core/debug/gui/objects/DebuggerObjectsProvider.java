@@ -43,6 +43,8 @@ import docking.widgets.OptionDialog;
 import docking.widgets.table.DefaultEnumeratedColumnTableModel;
 import docking.widgets.tree.GTree;
 import generic.jar.ResourceFile;
+import generic.theme.GColor;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.DebuggerPluginPackage;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources;
@@ -70,7 +72,8 @@ import ghidra.framework.options.annotation.*;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.annotation.AutoConfigStateField;
 import ghidra.framework.plugintool.annotation.AutoServiceConsumed;
-import ghidra.program.model.address.*;
+import ghidra.program.model.address.Address;
+import ghidra.program.model.address.AddressRange;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
@@ -122,76 +125,76 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	public static final String OPTION_NAME_DEFAULT_BACKGROUND_COLOR = "Object Colors.Background";
 
 	@AutoOptionDefined( //
-		name = OPTION_NAME_DEFAULT_FOREGROUND_COLOR, //
-		description = "The default foreground color of items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_DEFAULT_FOREGROUND_COLOR, //
+			description = "The default foreground color of items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color defaultForegroundColor = Color.BLACK;
+	Color defaultForegroundColor = new GColor("color.fg.debugger.plugin.objects.default");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_DEFAULT_BACKGROUND_COLOR, //
-		description = "The default background color of items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_DEFAULT_BACKGROUND_COLOR, //
+			description = "The default background color of items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color defaultBackgroundColor = Color.WHITE;
+	Color defaultBackgroundColor = new GColor("color.bg.debugger.plugin.objects.default");
 
 	@AutoOptionDefined( //
-		name = OPTION_NAME_INVISIBLE_FOREGROUND_COLOR, //
-		description = "The foreground color for items normally not visible (toggleable)", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_INVISIBLE_FOREGROUND_COLOR, //
+			description = "The foreground color for items normally not visible (toggleable)", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color invisibleForegroundColor = Color.LIGHT_GRAY;
+	Color invisibleForegroundColor = new GColor("color.fg.debugger.plugin.objects.invisible");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_INVALIDATED_FOREGROUND_COLOR, //
-		description = "The foreground color for items no longer valid", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_INVALIDATED_FOREGROUND_COLOR, //
+			description = "The foreground color for items no longer valid", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color invalidatedForegroundColor = Color.LIGHT_GRAY;
+	Color invalidatedForegroundColor = new GColor("color.fg.debugger.plugin.objects.invalidated");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_MODIFIED_FOREGROUND_COLOR, //
-		description = "The foreground color for modified items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_MODIFIED_FOREGROUND_COLOR, //
+			description = "The foreground color for modified items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color modifiedForegroundColor = Color.RED;
+	Color modifiedForegroundColor = new GColor("color.fg.debugger.plugin.objects.modified");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_SUBSCRIBED_FOREGROUND_COLOR, //
-		description = "The foreground color for subscribed items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_SUBSCRIBED_FOREGROUND_COLOR, //
+			description = "The foreground color for subscribed items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color subscribedForegroundColor = Color.BLACK;
+	Color subscribedForegroundColor = new GColor("color.fg.debugger.plugin.objects.subscribed");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_ERROR_FOREGROUND_COLOR, //
-		description = "The foreground color for items in error", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_ERROR_FOREGROUND_COLOR, //
+			description = "The foreground color for items in error", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color errorForegroundColor = Color.RED;
+	Color errorForegroundColor = new GColor("color.fg.debugger.plugin.objects.error");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_INTRINSIC_FOREGROUND_COLOR, //
-		description = "The foreground color for intrinsic items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_INTRINSIC_FOREGROUND_COLOR, //
+			description = "The foreground color for intrinsic items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color intrinsicForegroundColor = Color.BLUE;
+	Color intrinsicForegroundColor = new GColor("color.fg.debugger.plugin.objects.intrinsic");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_TARGET_FOREGROUND_COLOR, //
-		description = "The foreground color for target object items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_TARGET_FOREGROUND_COLOR, //
+			description = "The foreground color for target object items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color targetForegroundColor = Color.MAGENTA;
+	Color targetForegroundColor = new GColor("color.fg.debugger.plugin.objects.target");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_ACCESSOR_FOREGROUND_COLOR, //
-		description = "The foreground color for property accessor items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_ACCESSOR_FOREGROUND_COLOR, //
+			description = "The foreground color for property accessor items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color accessorForegroundColor = Color.LIGHT_GRAY;
+	Color accessorForegroundColor = new GColor("color.fg.debugger.plugin.objects.accessor");
 	@AutoOptionDefined( //
-		name = OPTION_NAME_LINK_FOREGROUND_COLOR, //
-		description = "The foreground color for links to items in the objects tree", //
-		help = @HelpInfo(anchor = "colors") //
+			name = OPTION_NAME_LINK_FOREGROUND_COLOR, //
+			description = "The foreground color for links to items in the objects tree", //
+			help = @HelpInfo(anchor = "colors") //
 	)
-	Color linkForegroundColor = Color.GREEN.darker();
+	Color linkForegroundColor = new GColor("color.fg.debugger.plugin.objects.link");
 
 	@AutoOptionDefined( //
-		name = "Default Extended Step", //
-		description = "The default string for the extended step command" //
+			name = "Default Extended Step", //
+			description = "The default string for the extended step command" //
 	//help = @HelpInfo(anchor = "colors") //
 	)
 	String extendedStep = "";
@@ -248,6 +251,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	private ToggleDockingAction actionToggleSelectionOnly;
 	private ToggleDockingAction actionToggleIgnoreState;
 	private ToggleDockingAction actionToggleUpdateWhileRunning;
+	private ToggleDockingAction actionSuppressDescent;
 
 	@AutoConfigStateField
 	private boolean autoRecord = true;
@@ -259,6 +263,8 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	private boolean ignoreState = false;
 	@AutoConfigStateField
 	private boolean updateWhileRunning = true;
+	@AutoConfigStateField
+	private boolean suppressDescent = false;
 
 	Set<TargetConfigurable> configurables = new HashSet<>();
 	private String lastMethod = "";
@@ -277,7 +283,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		this.asTree = asTree;
 		setIcon(asTree ? ObjectTree.ICON_TREE : ObjectTable.ICON_TABLE);
 
-		targetMap = new LinkedMap<String, ObjectContainer>();
+		targetMap = new LinkedMap<>();
 		refSet = new HashSet<>();
 		getRoot().propagateProvider(this);
 
@@ -644,7 +650,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		TargetObject targetObject = container.getTargetObject();
 		String name = targetObject.getName();
 		DefaultEnumeratedColumnTableModel<?, ObjectAttributeRow> model =
-			new DefaultEnumeratedColumnTableModel<>(name, ObjectAttributeColumn.class);
+			new DefaultEnumeratedColumnTableModel<>(tool, name, ObjectAttributeColumn.class);
 		Map<String, Object> map = container.getAttributeMap();
 		List<ObjectAttributeRow> list = new ArrayList<>();
 		for (Object val : map.values()) {
@@ -654,7 +660,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			}
 		}
 		model.addAll(list);
-		return new ObjectTable<ObjectAttributeRow>(container, ObjectAttributeRow.class, model);
+		return new ObjectTable<>(container, ObjectAttributeRow.class, model);
 	}
 
 	private ObjectTable<ObjectElementRow> buildTableFromElements(ObjectContainer container) {
@@ -674,7 +680,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			new ObjectEnumeratedColumnTableModel<>(name, cols);
 		model.addAll(list);
 		ObjectTable<ObjectElementRow> table =
-			new ObjectTable<ObjectElementRow>(container, ObjectElementRow.class, model);
+			new ObjectTable<>(container, ObjectElementRow.class, model);
 		for (Object obj : map.values()) {
 			if (obj instanceof TargetObject) {
 				TargetObject ref = (TargetObject) obj;
@@ -740,7 +746,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 
 	static List<ObjectContainer> getContainersFromObjects(Map<String, ?> objectMap,
 			TargetObject parent, boolean usingAttributes) {
-		List<ObjectContainer> result = new ArrayList<ObjectContainer>();
+		List<ObjectContainer> result = new ArrayList<>();
 		if (parent == null || parent instanceof DummyTargetObject) {
 			return result;
 		}
@@ -790,9 +796,9 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 
 	@Override
 	public void closeComponent() {
-		TargetObject targetObject = getRoot().getTargetObject();
-		if (targetObject != null) {
-			targetObject.removeListener(getListener());
+		DebuggerObjectModel model = getModel();
+		if (model != null) {
+			model.removeModelListener(getListener());
 		}
 		super.closeComponent();
 	}
@@ -822,7 +828,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 
 	public ObjectContainer getParent(ObjectContainer container) {
 		List<String> path = container.getTargetObject().getPath();
-		List<String> ppath = new ArrayList<String>();
+		List<String> ppath = new ArrayList<>();
 		for (String link : path) {
 			ppath.add(link);
 		}
@@ -1001,6 +1007,19 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			.selected(isUpdateWhileRunning())
 			.enabled(true)
 			.buildAndInstallLocal(this);
+		
+		groupTargetIndex++;
+
+		/*
+		actionSuppressDescent = new ToggleActionBuilder("Automatically populate containers", plugin.getName())
+			.menuPath("Maintenance","&Auto-populate")
+			.menuGroup(DebuggerResources.GROUP_TARGET, "M" + groupTargetIndex)
+			.helpLocation(new HelpLocation(plugin.getName(), "auto-populate containers"))
+			.onAction(ctx -> performToggleAutoPopulateContainers(ctx))
+			.selected(isUpdateWhileRunning())
+			.enabled(true)
+			.buildAndInstallLocal(this);
+		*/
 		
 		groupTargetIndex = 0;
 
@@ -1434,6 +1453,16 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		refresh("");
 	}
 
+	/*
+	public void performToggleAutoPopulateContainers(ActionContext context) {
+		suppressDescent = !actionSuppressDescent.isSelected();
+		if (currentModel != null) {
+			currentModel.setSuppressDescent(suppressDescent);
+		}
+		refresh("");
+	}
+	*/
+
 	protected <T extends TargetObject> void performAction(ActionContext context,
 			boolean fallbackRoot, Class<T> cls,
 			Function<T, CompletableFuture<Void>> func, String errorMsg) {
@@ -1466,7 +1495,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	public void performLaunch(ActionContext context) {
 		performAction(context, true, TargetLauncher.class, launcher -> {
 
-			Map<String, ?> args = launchOffer.getLauncherArgs(launcher.getParameters(), true);
+			Map<String, ?> args = launchOffer.getLauncherArgs(launcher, true);
 			if (args == null) {
 				// Cancelled
 				return AsyncUtils.NIL;
@@ -1565,7 +1594,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		try {
 			script = provider.getScriptInstance(sourceFile, writer);
 		}
-		catch (ClassNotFoundException | InstantiationException | IllegalAccessException e) {
+		catch (GhidraScriptLoadException e) {
 			Msg.error(this, e.getMessage());
 			return;
 		}
@@ -2001,7 +2030,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			case OPTION_NAME_TARGET_FOREGROUND_COLOR:
 				return targetForegroundColor;
 			default:
-				return Color.BLACK;
+				return Colors.FOREGROUND;
 		}
 	}
 
@@ -2071,9 +2100,9 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		if (listingService == null || listingService == null) {
 			return;
 		}
+		// TODO: Could probably inspect schema for any attribute of type Address[Range], or String
 		if (value == null) {
-			value =
-				object.getCachedAttribute(TargetBreakpointLocation.ADDRESS_ATTRIBUTE_NAME);
+			value = object.getCachedAttribute(TargetObject.PREFIX_INVISIBLE + "address");
 		}
 		if (value == null) {
 			value = object.getCachedAttribute(TargetObject.PREFIX_INVISIBLE + "range");
@@ -2086,19 +2115,16 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		}
 
 		Address addr = null;
-		if (value instanceof Address) {
-			addr = (Address) value;
+		if (value instanceof Address a) {
+			addr = a;
 		}
-		else if (value instanceof AddressRangeImpl) {
-			AddressRangeImpl range = (AddressRangeImpl) value;
+		else if (value instanceof AddressRange range) {
 			addr = range.getMinAddress();
 		}
-		else if (value instanceof Long) {
-			Long lval = (Long) value;
+		else if (value instanceof Long lval) {
 			addr = object.getModel().getAddress("ram", lval);
 		}
-		else if (value instanceof String) {
-			String sval = (String) value;
+		else if (value instanceof String sval) {
 			addr = stringToAddress(object, addr, sval);
 		}
 		if (addr != null) {

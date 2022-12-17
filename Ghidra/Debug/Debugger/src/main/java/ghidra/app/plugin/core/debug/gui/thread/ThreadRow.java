@@ -15,11 +15,10 @@
  */
 package ghidra.app.plugin.core.debug.gui.thread;
 
-import com.google.common.collect.Range;
-
 import ghidra.app.services.DebuggerModelService;
 import ghidra.app.services.TraceRecorder;
 import ghidra.dbg.target.TargetExecutionStateful.TargetExecutionState;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.Trace;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.Msg;
@@ -44,7 +43,7 @@ public class ThreadRow {
 
 	public void setName(String name) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(thread.getTrace(), "Renamed thread", true)) {
+			UndoableTransaction.start(thread.getTrace(), "Rename thread")) {
 			thread.setName(name);
 		}
 	}
@@ -63,13 +62,13 @@ public class ThreadRow {
 		return snap == Long.MAX_VALUE ? "" : Long.toString(snap);
 	}
 
-	public Range<Long> getLifespan() {
+	public Lifespan getLifespan() {
 		return thread.getLifespan();
 	}
 
 	public void setComment(String comment) {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(thread.getTrace(), "Renamed thread", true)) {
+			UndoableTransaction.start(thread.getTrace(), "Rename thread")) {
 			thread.setComment(comment);
 		}
 	}

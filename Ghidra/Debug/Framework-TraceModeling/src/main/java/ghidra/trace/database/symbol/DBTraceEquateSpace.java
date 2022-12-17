@@ -20,7 +20,6 @@ import java.util.Collection;
 import java.util.concurrent.locks.ReadWriteLock;
 
 import com.google.common.collect.Collections2;
-import com.google.common.collect.Range;
 
 import db.DBHandle;
 import db.DBRecord;
@@ -33,6 +32,7 @@ import ghidra.trace.database.map.DBTraceAddressSnapRangePropertyMapTree.Abstract
 import ghidra.trace.database.map.DBTraceAddressSnapRangePropertyMapTree.TraceAddressSnapRangeQuery;
 import ghidra.trace.database.space.AbstractDBTraceSpaceBasedManager.DBTraceSpaceEntry;
 import ghidra.trace.database.space.DBTraceSpaceBased;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.symbol.TraceEquateSpace;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.LockHold;
@@ -93,7 +93,7 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 			return this;
 		}
 
-		protected void setLifespan(Range<Long> lifespan) {
+		protected void setLifespan(Lifespan lifespan) {
 			doSetLifespan(lifespan);
 		}
 	}
@@ -101,6 +101,8 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 	protected final DBTraceEquateManager manager;
 	protected final DBHandle dbh;
 	protected final AddressSpace space;
+	protected final TraceThread thread;
+	protected final int frameLevel;
 	protected final ReadWriteLock lock;
 	protected final Language baseLanguage;
 	protected final DBTrace trace;
@@ -110,10 +112,12 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 	protected final DBTraceAddressSnapRangePropertyMapSpace<DBTraceEquateReference, DBTraceEquateReference> equateMapSpace;
 
 	public DBTraceEquateSpace(DBTraceEquateManager manager, DBHandle dbh, AddressSpace space,
-			DBTraceSpaceEntry ent) throws VersionException, IOException {
+			DBTraceSpaceEntry ent, TraceThread thread) throws VersionException, IOException {
 		this.manager = manager;
 		this.dbh = dbh;
 		this.space = space;
+		this.thread = thread;
+		this.frameLevel = ent.getFrameLevel();
 		this.lock = manager.getLock();
 		this.baseLanguage = manager.getBaseLanguage();
 		this.trace = manager.getTrace();
@@ -126,7 +130,8 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 		int frameLevel = ent.getFrameLevel();
 		this.equateMapSpace = new DBTraceAddressSnapRangePropertyMapSpace<>(
 			DBTraceEquateReference.tableName(space, threadKey, frameLevel), factory, lock, space,
-			DBTraceEquateReference.class, (t, s, r) -> new DBTraceEquateReference(this, t, s, r));
+			thread, ent.getFrameLevel(), DBTraceEquateReference.class,
+			(t, s, r) -> new DBTraceEquateReference(this, t, s, r));
 	}
 
 	@Override
@@ -136,23 +141,23 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 
 	@Override
 	public TraceThread getThread() {
-		return null;
+		return thread;
 	}
 
 	@Override
 	public int getFrameLevel() {
-		return 0;
+		return frameLevel;
 	}
 
 	@Override
-	public AddressSetView getReferringAddresses(Range<Long> span) {
+	public AddressSetView getReferringAddresses(Lifespan span) {
 		return new DBTraceAddressSnapRangePropertyMapAddressSetView<>(space, lock,
 			equateMapSpace.reduce(TraceAddressSnapRangeQuery.intersecting(fullSpace, span)),
 			e -> true);
 	}
 
 	@Override
-	public void clearReferences(Range<Long> span, AddressSetView asv, TaskMonitor monitor)
+	public void clearReferences(Lifespan span, AddressSetView asv, TaskMonitor monitor)
 			throws CancelledException {
 		try (LockHold hold = LockHold.lock(lock.writeLock())) {
 			for (AddressRange range : asv) {
@@ -162,7 +167,7 @@ public class DBTraceEquateSpace implements DBTraceSpaceBased, TraceEquateSpace {
 	}
 
 	@Override
-	public void clearReferences(Range<Long> span, AddressRange range, TaskMonitor monitor)
+	public void clearReferences(Lifespan span, AddressRange range, TaskMonitor monitor)
 			throws CancelledException {
 		try (LockHold hold = LockHold.lock(lock.writeLock())) {
 			for (DBTraceEquateReference eref : equateMapSpace.reduce(

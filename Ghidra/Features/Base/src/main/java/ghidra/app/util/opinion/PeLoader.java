@@ -16,7 +16,6 @@
 package ghidra.app.util.opinion;
 
 import java.io.IOException;
-import java.math.BigInteger;
 import java.util.*;
 
 import ghidra.app.util.MemoryBlockUtils;
@@ -26,7 +25,6 @@ import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.bin.format.mz.DOSHeader;
 import ghidra.app.util.bin.format.pe.*;
 import ghidra.app.util.bin.format.pe.ImageCor20Header.ImageCor20Flags;
-import ghidra.app.util.bin.format.pe.ImageRuntimeFunctionEntries._IMAGE_RUNTIME_FUNCTION_ENTRY;
 import ghidra.app.util.bin.format.pe.PortableExecutable.SectionLayout;
 import ghidra.app.util.bin.format.pe.debug.DebugCOFFSymbol;
 import ghidra.app.util.bin.format.pe.debug.DebugDirectoryParser;
@@ -37,16 +35,13 @@ import ghidra.program.database.function.OverlappingFunctionException;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.address.*;
 import ghidra.program.model.data.*;
-import ghidra.program.model.lang.Register;
-import ghidra.program.model.lang.RegisterValue;
 import ghidra.program.model.listing.*;
-import ghidra.program.model.mem.Memory;
 import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.reloc.RelocationTable;
 import ghidra.program.model.symbol.*;
 import ghidra.program.model.util.AddressSetPropertyMap;
 import ghidra.program.model.util.CodeUnitInsertionException;
-import ghidra.util.*;
+import ghidra.util.Msg;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
@@ -76,7 +71,7 @@ public class PeLoader extends AbstractPeDebugLoader {
 			return loadSpecs;
 		}
 
-		PortableExecutable pe = new PortableExecutable(provider, SectionLayout.FILE, false, false);
+		PortableExecutable pe = new PortableExecutable(provider, getSectionLayout(), false, false);
 		NTHeader ntHeader = pe.getNTHeader();
 		if (ntHeader != null && ntHeader.getOptionalHeader() != null) {
 			long imageBase = ntHeader.getOptionalHeader().getImageBase();
@@ -102,7 +97,7 @@ public class PeLoader extends AbstractPeDebugLoader {
 			return;
 		}
 
-		PortableExecutable pe = new PortableExecutable(provider, SectionLayout.FILE, false,
+		PortableExecutable pe = new PortableExecutable(provider, getSectionLayout(), false,
 			shouldParseCliHeaders(options));
 
 		NTHeader ntHeader = pe.getNTHeader();
@@ -110,10 +105,9 @@ public class PeLoader extends AbstractPeDebugLoader {
 			return;
 		}
 		OptionalHeader optionalHeader = ntHeader.getOptionalHeader();
-		FileHeader fileHeader = ntHeader.getFileHeader();
 
 		monitor.setMessage("Completing PE header parsing...");
-		FileBytes fileBytes = MemoryBlockUtils.createFileBytes(program, provider, monitor);
+		FileBytes fileBytes = createFileBytes(provider, program, monitor);
 		try {
 			Map<SectionHeader, Address> sectionToAddress =
 				processMemoryBlocks(pe, program, fileBytes, monitor, log);
@@ -134,8 +128,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 				}
 			}
 
-			setProcessorContext(fileHeader, program, monitor, log);
-
 			processExports(optionalHeader, program, monitor, log);
 			processImports(optionalHeader, program, monitor, log);
 			processDelayImports(optionalHeader, program, monitor, log);
@@ -144,7 +136,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 			processProperties(optionalHeader, program, monitor);
 			processComments(program.getListing(), monitor);
 			processSymbols(ntHeader, sectionToAddress, program, monitor, log);
-			processImageRuntimeFunctionEntries(fileHeader, program, monitor, log);
 
 			processEntryPoints(ntHeader, program, monitor);
 			String compiler = CompilerOpinion.getOpinion(pe, provider).toString();
@@ -164,6 +155,16 @@ public class PeLoader extends AbstractPeDebugLoader {
 			throw new IOException(e);
 		}
 		monitor.setMessage("[" + program.getName() + "]: done!");
+	}
+
+	protected SectionLayout getSectionLayout() {
+		return SectionLayout.FILE;
+	}
+
+	protected FileBytes createFileBytes(ByteProvider provider, Program program, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		FileBytes fileBytes = MemoryBlockUtils.createFileBytes(program, provider, monitor);
+		return fileBytes;
 	}
 
 	@Override
@@ -211,7 +212,8 @@ public class PeLoader extends AbstractPeDebugLoader {
 		return PARSE_CLI_HEADERS_OPTION_DEFAULT;
 	}
 
-	private void layoutHeaders(Program program, PortableExecutable pe, NTHeader ntHeader,
+	private void layoutHeaders(Program program, PortableExecutable pe,
+			NTHeader ntHeader,
 			DataDirectory[] datadirs) {
 		try {
 			DataType dt = pe.getDOSHeader().toDataType();
@@ -248,41 +250,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 		}
 	}
 
-	private void processImageRuntimeFunctionEntries(FileHeader fileHeader, Program program,
-			TaskMonitor monitor, MessageLog log) {
-
-		// Check to see that we have exception data to process
-		SectionHeader irfeHeader = null;
-		for (SectionHeader header : fileHeader.getSectionHeaders()) {
-			if (header.getName().contains(".pdata")) {
-				irfeHeader = header;
-				break;
-			}
-		}
-
-		if (irfeHeader == null) {
-			return;
-		}
-
-		Address start = program.getImageBase().add(irfeHeader.getVirtualAddress());
-
-		List<_IMAGE_RUNTIME_FUNCTION_ENTRY> irfes = fileHeader.getImageRuntimeFunctionEntries();
-
-		if (irfes.isEmpty()) {
-			return;
-		}
-
-		// TODO: This is x86-64 architecture-specific and needs to be generalized.
-		ImageRuntimeFunctionEntries.createData(program, start, irfes);
-
-		// Each RUNTIME_INFO contains an address to an UNWIND_INFO structure
-		// which also needs to be laid out. When they contain chaining data
-		// they're recursive but the toDataType() function handles that.
-		for (_IMAGE_RUNTIME_FUNCTION_ENTRY entry : irfes) {
-			entry.createData(program);
-		}
-	}
-
 	private void processSymbols(NTHeader ntHeader, Map<SectionHeader, Address> sectionToAddress,
 			Program program, TaskMonitor monitor, MessageLog log) {
 		FileHeader fileHeader = ntHeader.getFileHeader();
@@ -313,10 +280,9 @@ public class PeLoader extends AbstractPeDebugLoader {
 
 	private void processRelocations(OptionalHeader optionalHeader, Program prog,
 			TaskMonitor monitor, MessageLog log) {
+		// We don't currently support relocations in PE's because we always load at the preferred
+		// image base, but we'll go though them anyway and add them to the relocation table
 
-		if (monitor.isCancelled()) {
-			return;
-		}
 		monitor.setMessage("[" + prog.getName() + "]: processing relocation tables...");
 
 		DataDirectory[] dataDirectories = optionalHeader.getDataDirectories();
@@ -332,67 +298,14 @@ public class PeLoader extends AbstractPeDebugLoader {
 		AddressSpace space = prog.getAddressFactory().getDefaultAddressSpace();
 		RelocationTable relocTable = prog.getRelocationTable();
 
-		Memory memory = prog.getMemory();
-
-		BaseRelocation[] relocs = brdd.getBaseRelocations();
-		long originalImageBase = optionalHeader.getOriginalImageBase();
-		AddressRange brddRange =
-			new AddressRangeImpl(space.getAddress(originalImageBase + brdd.getVirtualAddress()),
-				space.getAddress(originalImageBase + brdd.getVirtualAddress() + brdd.getSize()));
-		AddressRange headerRange = new AddressRangeImpl(space.getAddress(originalImageBase),
-			space.getAddress(originalImageBase + optionalHeader.getSizeOfHeaders()));
-		DataConverter conv = LittleEndianDataConverter.INSTANCE;
-
-		for (BaseRelocation reloc : relocs) {
+		for (BaseRelocation reloc : brdd.getBaseRelocations()) {
 			if (monitor.isCancelled()) {
 				return;
 			}
 			int baseAddr = reloc.getVirtualAddress();
-			int count = reloc.getCount();
-			for (int j = 0; j < count; ++j) {
-				int type = reloc.getType(j);
-				if (type == BaseRelocation.IMAGE_REL_BASED_ABSOLUTE) {
-					continue;
-				}
-				int offset = reloc.getOffset(j);
-				long addr = Conv.intToLong(baseAddr + offset) + optionalHeader.getImageBase();
-				Address relocAddr = space.getAddress(addr);
-
-				try {
-					byte[] bytes = optionalHeader.is64bit() ? new byte[8] : new byte[4];
-					memory.getBytes(relocAddr, bytes);
-					if (optionalHeader.wasRebased()) {
-						long val = optionalHeader.is64bit() ? conv.getLong(bytes)
-								: conv.getInt(bytes) & 0xFFFFFFFFL;
-						val =
-							val - (originalImageBase & 0xFFFFFFFFL) + optionalHeader.getImageBase();
-						byte[] newbytes = optionalHeader.is64bit() ? conv.getBytes(val)
-								: conv.getBytes((int) val);
-						if (type == BaseRelocation.IMAGE_REL_BASED_HIGHLOW) {
-							memory.setBytes(relocAddr, newbytes);
-						}
-						else if (type == BaseRelocation.IMAGE_REL_BASED_DIR64) {
-							memory.setBytes(relocAddr, newbytes);
-						}
-						else {
-							Msg.error(this, "Non-standard relocation type " + type);
-						}
-					}
-
-					relocTable.add(relocAddr, type, null, bytes, null);
-
-				}
-				catch (MemoryAccessException e) {
-					log.appendMsg("Relocation does not exist in memory: " + relocAddr);
-				}
-				if (brddRange.contains(relocAddr)) {
-					Msg.error(this, "Self-modifying relocation table at " + relocAddr);
-					return;
-				}
-				if (headerRange.contains(relocAddr)) {
-					Msg.error(this, "Header modified at " + relocAddr);
-					return;
-				}
+			for (int i = 0; i < reloc.getCount(); ++i) {
+				long addr = optionalHeader.getImageBase() + baseAddr + reloc.getOffset(i);
+				relocTable.add(space.getAddress(addr), reloc.getType(i), null, null, null);
 			}
 		}
 	}
@@ -419,7 +332,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 		AddressSpace space = af.getDefaultAddressSpace();
 
 		Listing listing = program.getListing();
-		ReferenceManager refManager = program.getReferenceManager();
 
 		ImportInfo[] imports = idd.getImports();
 		for (ImportInfo importInfo : imports) {
@@ -427,13 +339,14 @@ public class PeLoader extends AbstractPeDebugLoader {
 				return;
 			}
 
-			long addr = Conv.intToLong(importInfo.getAddress()) + optionalHeader.getImageBase();
+			long addr =
+				Integer.toUnsignedLong(importInfo.getAddress()) + optionalHeader.getImageBase();
 
 			//If not 64bit make sure address is not larger
 			//than 32bit. On WindowsCE some sections are
 			//declared to roll over.
 			if (!optionalHeader.is64bit()) {
-				addr &= Conv.INT_MASK;
+				addr &= 0x00000000ffffffffL;
 			}
 
 			Address address = space.getAddress(addr);
@@ -441,27 +354,30 @@ public class PeLoader extends AbstractPeDebugLoader {
 			setComment(CodeUnit.PRE_COMMENT, address, importInfo.getComment());
 
 			Data data = listing.getDefinedDataAt(address);
-			if (data == null || !(data.getValue() instanceof Address)) {
-				continue;
+			if (data != null && data.isPointer()) {
+				addExternalReference(data, importInfo, log);
 			}
+		}
+	}
 
-			Address extAddr = (Address) data.getValue();
-			if (extAddr != null) {
-				// remove the existing mem reference that was created
-				// when making a pointer
-				data.removeOperandReference(0, extAddr);
+	protected void addExternalReference(Data pointerData, ImportInfo importInfo, MessageLog log) {
+		Address extAddr = (Address) pointerData.getValue();
+		if (extAddr != null) {
+			// remove the existing mem reference that was created when making a pointer
+			pointerData.removeOperandReference(0, extAddr);
 //	            symTable.removeSymbol(symTable.getDynamicSymbol(extAddr));
 
-				try {
-					refManager.addExternalReference(address, importInfo.getDLL().toUpperCase(),
-						importInfo.getName(), extAddr, SourceType.IMPORTED, 0, RefType.DATA);
-				}
-				catch (DuplicateNameException e) {
-					log.appendMsg("External location not created: " + e.getMessage());
-				}
-				catch (InvalidInputException e) {
-					log.appendMsg("External location not created: " + e.getMessage());
-				}
+			try {
+				ReferenceManager refManager = pointerData.getProgram().getReferenceManager();
+				refManager.addExternalReference(pointerData.getAddress(),
+					importInfo.getDLL().toUpperCase(),
+					importInfo.getName(), extAddr, SourceType.IMPORTED, 0, RefType.DATA);
+			}
+			catch (DuplicateNameException e) {
+				log.appendMsg("External location not created: " + e.getMessage());
+			}
+			catch (InvalidInputException e) {
+				log.appendMsg("External location not created: " + e.getMessage());
 			}
 		}
 	}
@@ -544,11 +460,11 @@ public class PeLoader extends AbstractPeDebugLoader {
 	}
 
 	/**
-	 * Mark this location as code in the CodeMap.
-	 * The analyzers will pick this up and disassemble the code.
+	 * Mark this location as code in the CodeMap. The analyzers will pick this up and disassemble
+	 * the code.
 	 *
-	 * TODO: this should be in a common place, so all importers can communicate that something
-	 * is code or data.
+	 * TODO: this should be in a common place, so all importers can communicate that something is
+	 * code or data.
 	 *
 	 * @param program The program to mark up.
 	 * @param address The location.
@@ -566,27 +482,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 
 		if (codeProp != null) {
 			codeProp.add(address, address);
-		}
-	}
-
-	private void setProcessorContext(FileHeader fileHeader, Program program, TaskMonitor monitor,
-			MessageLog log) {
-
-		try {
-			String machineName = fileHeader.getMachineName();
-			if ("450".equals(machineName) || "452".equals(machineName)) {
-				Register tmodeReg = program.getProgramContext().getRegister("TMode");
-				if (tmodeReg == null) {
-					return;
-				}
-				RegisterValue thumbMode = new RegisterValue(tmodeReg, BigInteger.ONE);
-				AddressSpace space = program.getAddressFactory().getDefaultAddressSpace();
-				program.getProgramContext()
-						.setRegisterValue(space.getMinAddress(), space.getMaxAddress(), thumbMode);
-			}
-		}
-		catch (ContextChangeException e) {
-			throw new AssertException("instructions should not exist");
 		}
 	}
 
@@ -687,7 +582,7 @@ public class PeLoader extends AbstractPeDebugLoader {
 		}
 	}
 
-	private Map<SectionHeader, Address> processMemoryBlocks(PortableExecutable pe, Program prog,
+	protected Map<SectionHeader, Address> processMemoryBlocks(PortableExecutable pe, Program prog,
 			FileBytes fileBytes, TaskMonitor monitor, MessageLog log)
 			throws AddressOverflowException {
 
@@ -731,6 +626,11 @@ public class PeLoader extends AbstractPeDebugLoader {
 
 				address = space.getAddress(addr);
 
+				String sectionName = sections[i].getReadableName();
+				if (sectionName.isBlank()) {
+					sectionName = "SECTION." + i;
+				}
+
 				r = ((sections[i].getCharacteristics() &
 					SectionFlags.IMAGE_SCN_MEM_READ.getMask()) != 0x0);
 				w = ((sections[i].getCharacteristics() &
@@ -751,10 +651,6 @@ public class PeLoader extends AbstractPeDebugLoader {
 						if (!ntHeader.checkRVA(dataSize)) {
 							Msg.warn(this, "OptionalHeader.SizeOfImage < size of " +
 								sections[i].getName() + " section");
-						}
-						String sectionName = sections[i].getReadableName();
-						if (sectionName.isBlank()) {
-							sectionName = "SECTION." + i;
 						}
 						MemoryBlockUtils.createInitializedBlock(prog, false, sectionName, address,
 							fileBytes, rawDataPtr, dataSize, "", "", r, w, x, log);
@@ -785,9 +681,9 @@ public class PeLoader extends AbstractPeDebugLoader {
 				else {
 					int dataSize = (virtualSize > 0 || rawDataSize < 0) ? virtualSize : 0;
 					if (dataSize > 0) {
-						MemoryBlockUtils.createUninitializedBlock(prog, false,
-							sections[i].getReadableName(), address, dataSize, "", "", r, w, x, log);
-						sectionToAddress.put(sections[i], address);
+						MemoryBlockUtils.createUninitializedBlock(prog, false, sectionName, address,
+							dataSize, "", "", r, w, x, log);
+						sectionToAddress.putIfAbsent(sections[i], address);
 					}
 				}
 
@@ -803,7 +699,7 @@ public class PeLoader extends AbstractPeDebugLoader {
 		return sectionToAddress;
 	}
 
-	private int getVirtualSize(PortableExecutable pe, SectionHeader[] sections,
+	protected int getVirtualSize(PortableExecutable pe, SectionHeader[] sections,
 			AddressSpace space) {
 		DOSHeader dosHeader = pe.getDOSHeader();
 		OptionalHeader optionalHeader = pe.getNTHeader().getOptionalHeader();
@@ -1019,6 +915,7 @@ public class PeLoader extends AbstractPeDebugLoader {
 
 		/**
 		 * Return true if chararray appears in full, starting at offset bytestart in bytearray
+		 * 
 		 * @param bytearray the array of bytes containing the potential match
 		 * @param bytestart the potential start of the match
 		 * @param chararray the array of characters to match

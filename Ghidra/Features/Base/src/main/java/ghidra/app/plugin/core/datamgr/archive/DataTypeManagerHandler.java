@@ -76,7 +76,7 @@ public class DataTypeManagerHandler {
 	private DataTreeDialog dataTreeSaveDialog;
 	private CreateDataTypeArchiveDataTreeDialog dataTreeCreateDialog;
 	private boolean treeDialogCancelled = false;
-	private DomainFileFilter domainFileFilter;
+	private DomainFileFilter createArchiveFileFilter;
 
 	private DataTypeIndexer dataTypeIndexer;
 	private List<ArchiveManagerListener> archiveManagerlisteners = new ArrayList<>();
@@ -102,9 +102,17 @@ public class DataTypeManagerHandler {
 		dataTypeIndexer.addDataTypeManager(builtInDataTypesManager);
 		openArchives.add(new BuiltInArchive(this, builtInDataTypesManager));
 
-		domainFileFilter = f -> {
-			Class<?> c = f.getDomainObjectClass();
-			return DataTypeArchive.class.isAssignableFrom(c);
+		createArchiveFileFilter = new DomainFileFilter() {
+
+			@Override
+			public boolean accept(DomainFile df) {
+				return DataTypeArchive.class.isAssignableFrom(df.getDomainObjectClass());
+			}
+
+			@Override
+			public boolean followLinkedFolders() {
+				return false;
+			}
 		};
 
 		folderListener = new MyFolderListener();
@@ -1425,7 +1433,7 @@ public class DataTypeManagerHandler {
 				}
 			};
 			dataTreeSaveDialog =
-				new DataTreeDialog(null, "Save As", DataTreeDialog.SAVE, domainFileFilter);
+				new DataTreeDialog(null, "Save As", DataTreeDialog.SAVE, createArchiveFileFilter);
 
 			dataTreeSaveDialog.addOkActionListener(listener);
 			dataTreeSaveDialog
@@ -1465,7 +1473,7 @@ public class DataTypeManagerHandler {
 			};
 
 			dataTreeCreateDialog = new CreateDataTypeArchiveDataTreeDialog(null, "Create",
-				DataTreeDialog.CREATE, domainFileFilter);
+				DataTreeDialog.CREATE, createArchiveFileFilter);
 
 			dataTreeCreateDialog.addOkActionListener(listener);
 			dataTreeCreateDialog.setHelpLocation(

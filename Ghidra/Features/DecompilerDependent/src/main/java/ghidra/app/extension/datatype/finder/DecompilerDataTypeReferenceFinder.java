@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -90,7 +90,9 @@ public class DecompilerDataTypeReferenceFinder implements DataTypeReferenceFinde
 		}
 		catch (InterruptedException e) {
 			Thread.currentThread().interrupt(); // reset the flag
-			Msg.debug(this, "Interrupted while decompiling functions");
+			if (!monitor.isCancelled()) {
+				Msg.debug(this, "Interrupted while decompiling functions");
+			}
 		}
 		catch (Exception e) {
 			Msg.error(this, "Encountered an exception decompiling functions", e);
@@ -445,9 +447,8 @@ public class DecompilerDataTypeReferenceFinder implements DataTypeReferenceFinde
 					else {
 						if (access == null || access.getVariable() != null) {
 
-							debugWriter
-									.println("f: " + function + "\n\t\tcreating variable access: " +
-										line);
+							debugWriter.println(
+								"f: " + function + "\n\t\tcreating variable access: " + line);
 
 							access = new VariableAccessDR(line);
 							results.add(access);
@@ -480,9 +481,8 @@ public class DecompilerDataTypeReferenceFinder implements DataTypeReferenceFinde
 					ClangFieldToken field = (ClangFieldToken) token;
 					if (typesDoNotMatch(access, field)) {
 
-						debugWriter.println(
-							"f: " + function + "\n\t\tcreating an anonymous variable access: " +
-								line);
+						debugWriter.println("f: " + function +
+							"\n\t\tcreating an anonymous variable access: " + line);
 
 						// this can happen when a field is used anonymously, such as directly
 						// after a nested array index operation

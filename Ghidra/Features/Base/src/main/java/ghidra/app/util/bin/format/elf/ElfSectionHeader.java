@@ -15,8 +15,9 @@
  */
 package ghidra.app.util.bin.format.elf;
 
-import java.io.*;
 import java.util.HashMap;
+
+import java.io.*;
 
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.StructConverter;
@@ -333,13 +334,13 @@ public class ElfSectionHeader implements StructConverter, Writeable, MemoryLoada
 		}
 
 		ElfSectionHeader[] sections = header.getSections();
-		short e_shstrndx = header.e_shstrndx();
+		int e_shstrndx = header.e_shstrndx();
 		name = null;
 		try {
-			if (sh_name >= 0 && e_shstrndx >= 0 && e_shstrndx < sections.length) {
+			if (sh_name >= 0 && e_shstrndx > 0 && e_shstrndx < sections.length) {
 				// read section name from string table
-				long stringTableOffset = sections[e_shstrndx].getOffset();
-				if (stringTableOffset >= 0) {
+				if (!sections[e_shstrndx].isInvalidOffset()) {
+					long stringTableOffset = sections[e_shstrndx].getOffset();
 					long offset = stringTableOffset + sh_name;
 					if (offset < reader.length()) {
 						name = reader.readAsciiString(stringTableOffset + sh_name);
@@ -394,6 +395,16 @@ public class ElfSectionHeader implements StructConverter, Writeable, MemoryLoada
 	 */
 	public long getOffset() {
 		return sh_offset;
+	}
+
+	/**
+	 * Returns true if this section header's offset is invalid.
+	 * 
+	 * @return true if this section header's offset is invalid
+	 */
+	public boolean isInvalidOffset() {
+		return sh_offset < 0 ||
+			(header.is32Bit() && sh_offset == ElfConstants.ELF32_INVALID_OFFSET);
 	}
 
 	/**

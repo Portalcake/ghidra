@@ -109,8 +109,13 @@ public class WrappedDbgModel
 
 	@Override
 	public void createProcess(DebugServerId si, String commandLine,
-			BitmaskSet<DebugCreateFlags> createFlags) {
-		client.createProcess(si, commandLine, createFlags);
+			String initialDirectory, String environment,
+			BitmaskSet<DebugCreateFlags> createFlags,
+			BitmaskSet<DebugEngCreateFlags> engCreateFlags,
+			BitmaskSet<DebugVerifierFlags> verifierFlags) {
+		client.createProcess(si, commandLine,
+			initialDirectory, environment,
+			createFlags, engCreateFlags, verifierFlags);
 	}
 
 	@Override
@@ -336,6 +341,11 @@ public class WrappedDbgModel
 	@Override
 	public DebugMemoryBasicInformation queryVirtual(long offset) {
 		return client.getDataSpaces().queryVirtual(offset);
+	}
+
+	@Override
+	public long virtualToPhysical(long offset) {
+		return client.getDataSpaces().virtualToPhysical(offset);
 	}
 
 	// REGISTERS INTERFACE

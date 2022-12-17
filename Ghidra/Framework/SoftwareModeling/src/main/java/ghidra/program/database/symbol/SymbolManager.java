@@ -1178,9 +1178,16 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 		if (ref == null) {
 			return null;
 		}
-		long symId = ref.getSymbolID();
-		if (symId >= 0) {
-			return getSymbol(symId);
+		if (ref.isMemoryReference()) {
+			long symId = ref.getSymbolID();
+			if (symId >= 0) {
+				Symbol s = getSymbol(symId);
+				// Ensure that referenced symbol exists and has an address which corresponds
+				// to ref's to-address. This will always be either a LABEL or FUNCTION.
+				if (s != null && ref.getToAddress().equals(s.getAddress())) {
+					return s;
+				}
+			}
 		}
 		if (!ref.isExternalReference()) {
 			// We check for variables first just in case ref refers to a memory parameter
@@ -2572,6 +2579,11 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 
 			checkValidNamespaceArgument(namespace);
 
+			if (namespace.isGlobal() || namespace.isLibrary()) {
+				throw new IllegalArgumentException(
+					"May not convert namespace to class: " + namespace.getName(true));
+			}
+
 			Symbol namespaceSymbol = namespace.getSymbol();
 			String name = namespaceSymbol.getName();
 			SourceType originalSource = namespaceSymbol.getSource();
@@ -2722,7 +2734,7 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 	 * it will be returned.
 	 * @param addr the address for the new symbol (memory or external)
 	 * @param name the name of the new symbol
-	 * @param namespace the namespace for the new symbol
+	 * @param namespace the namespace for the new symbol (null may be specified for global namespace)
 	 * @param source the SourceType of the new symbol
 	 * @param stringData special use depending on the symbol type and whether or not it is external
 	 * @return the new symbol
@@ -2782,7 +2794,7 @@ public class SymbolManager implements SymbolTable, ManagerDB {
 	 * 
 	 * @param addr the address for the new symbol
 	 * @param name the name of the new symbol
-	 * @param namespace the namespace for the new symbol
+	 * @param namespace the namespace for the new symbol (null may be specified for global namespace)
 	 * @param source the SourceType of the new symbol
 	 * @param stringData special use depending on the symbol type and whether or not it is external.
 	 * @return the new symbol

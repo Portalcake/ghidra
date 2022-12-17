@@ -28,6 +28,7 @@ import docking.widgets.dialogs.MultiLineMessageDialog;
 import ghidra.GhidraOptions;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.context.ListingActionContext;
+import ghidra.app.context.ListingContextAction;
 import ghidra.app.events.*;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.services.Analyzer;
@@ -36,8 +37,9 @@ import ghidra.framework.options.OptionType;
 import ghidra.framework.options.Options;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.util.PluginStatus;
-import ghidra.program.model.address.AddressSetView;
+import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
+import ghidra.program.model.mem.Memory;
 import ghidra.program.util.GhidraProgramUtilities;
 import ghidra.program.util.ProgramSelection;
 import ghidra.util.HelpLocation;
@@ -318,7 +320,7 @@ public class AutoAnalysisPlugin extends Plugin implements AutoAnalysisManagerLis
 		}
 	}
 
-	class OneShotAnalyzerAction extends DockingAction {
+	class OneShotAnalyzerAction extends ListingContextAction {
 		private Analyzer analyzer;
 		private Program canAnalyzeProgram;
 		private boolean canAnalyze;
@@ -330,28 +332,26 @@ public class AutoAnalysisPlugin extends Plugin implements AutoAnalysisManagerLis
 				null, ANALYZE_GROUP_NAME));
 			setHelpLocation(new HelpLocation("AutoAnalysisPlugin", "Auto_Analyzers"));
 
-			setEnabled(false);
 			setSupportsDefaultToolContext(true);
 		}
 
 		@Override
-		public void actionPerformed(ActionContext context) {
-			if (!(context instanceof ListingActionContext)) {
-				return;
-			}
-			ListingActionContext programContext = (ListingActionContext) context;
+		public void actionPerformed(ListingActionContext context) {
 			AddressSetView set;
-			if (programContext.hasSelection()) {
-				set = programContext.getSelection();
+			if (context.hasSelection()) {
+				set = context.getSelection();
 			}
 			else {
-				set = programContext.getProgram().getMemory();
+				Memory memory = context.getProgram().getMemory();
+				AddressSet external = new AddressSet(AddressSpace.EXTERNAL_SPACE.getMinAddress(),
+					AddressSpace.EXTERNAL_SPACE.getMaxAddress());
+				set = memory.union(external);
 			}
 
 			AutoAnalysisManager analysisMgr =
-				AutoAnalysisManager.getAnalysisManager(programContext.getProgram());
+				AutoAnalysisManager.getAnalysisManager(context.getProgram());
 
-			Program program = programContext.getProgram();
+			Program program = context.getProgram();
 			Options options = program.getOptions(Program.ANALYSIS_PROPERTIES);
 			options = options.getOptions(analyzer.getName());
 			analyzer.optionsChanged(options, program);
@@ -364,12 +364,8 @@ public class AutoAnalysisPlugin extends Plugin implements AutoAnalysisManagerLis
 		}
 
 		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			if (!(context instanceof ListingActionContext)) {
-				return false;
-			}
-			ListingActionContext programContext = (ListingActionContext) context;
-			Program p = programContext.getProgram();
+		public boolean isEnabledForContext(ListingActionContext context) {
+			Program p = context.getProgram();
 			if (p != canAnalyzeProgram) {
 				canAnalyzeProgram = p;
 				canAnalyze = analyzer.canAnalyze(p);

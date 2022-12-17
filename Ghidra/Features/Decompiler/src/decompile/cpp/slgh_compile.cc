@@ -1789,7 +1789,7 @@ SleighCompile::SleighCompile(void)
 }
 
 /// Create the address spaces: \b const, \b unique, and \b other.
-/// Define the special symbols: \b inst_start, \b inst_next, \b epsilon.
+/// Define the special symbols: \b inst_start, \b inst_next, \b inst_next2, \b epsilon.
 /// Define the root subtable symbol: \b instruction
 void SleighCompile::predefinedSymbols(void)
 
@@ -1813,6 +1813,8 @@ void SleighCompile::predefinedSymbols(void)
   symtab.addSymbol(startsym);
   EndSymbol *endsym = new EndSymbol("inst_next",getConstantSpace());
   symtab.addSymbol(endsym);
+  Next2Symbol *next2sym = new Next2Symbol("inst_next2",getConstantSpace());
+  symtab.addSymbol(next2sym);
   EpsilonSymbol *epsilon = new EpsilonSymbol("epsilon",getConstantSpace());
   symtab.addSymbol(epsilon);
   pcode.setConstantSpace(getConstantSpace());
@@ -1943,8 +1945,10 @@ void SleighCompile::buildPatterns(void)
     errors += 1;
   }
   for(int4 i=0;i<tables.size();++i) {
-    if (tables[i]->isError())
+    if (tables[i]->isError()) {
+      reportError(getLocation(tables[i]), "Problem in table '"+tables[i]->getName() + "':" + msg.str());
       errors += 1;
+    }
     if (tables[i]->getPattern() == (TokenPattern *)0) {
       reportWarning(getLocation(tables[i]), "Unreferenced table '"+tables[i]->getName() + "'");
     }
@@ -2131,8 +2135,11 @@ void SleighCompile::checkCaseSensitivity(void)
       SleighSymbol *oldsym = (*check.first).second;
       ostringstream s;
       s << "Name collision: " << sym->getName() << " --- ";
+      s << "Duplicate symbol " << oldsym->getName();
       const Location *oldLocation = getLocation(oldsym);
-      s << "Duplicate symbol " << oldsym->getName() << " defined at " << oldLocation->format();
+      if (oldLocation != (Location *) 0x0) {
+        s << " defined at " << oldLocation->format();
+      }
       const Location *location = getLocation(sym);
       reportError(location,s.str());
     }
@@ -2186,11 +2193,15 @@ const Location *SleighCompile::getLocation(Constructor *ctor) const
 }
 
 /// \param sym is the given symbol
-/// \return the filename and line number
+/// \return the filename and line number or null if location not found
 const Location *SleighCompile::getLocation(SleighSymbol *sym) const
 
 {
-  return &symbolLocationMap.at(sym);
+  try {
+    return &symbolLocationMap.at(sym);
+  } catch (const out_of_range &e) {
+    return nullptr;
+  }
 }
 
 /// The current filename and line number are placed into a Location object
@@ -2239,7 +2250,7 @@ void SleighCompile::reportError(const Location* loc, const string &msg)
 void SleighCompile::reportError(const string &msg)
 
 {
-  cerr << "ERROR   " << msg << endl;
+  cerr << filename.back() << ":" << lineno.back() << " - ERROR " << msg << endl;
   errors += 1;
   if (errors > 1000000) {
     cerr << "Too many errors: Aborting" << endl;
@@ -2668,7 +2679,10 @@ void SleighCompile::attachValues(vector<SleighSymbol *> *symlist,vector<intb> *n
     if (sym == (ValueSymbol *)0) continue;
     PatternValue *patval = sym->getPatternValue();
     if (patval->maxValue() + 1 != numlist->size()) {
-      reportError(getCurrentLocation(), "Attach value '" + sym->getName() + "' is wrong size for list");
+      ostringstream msg;
+      msg << "Attach value '" + sym->getName();
+      msg << "' (range 0.." << patval->maxValue() << ") is wrong size for list (of " << numlist->size() << " entries)";
+      reportError(getCurrentLocation(), msg.str());
     }
     symtab.replaceSymbol(sym, new ValueMapSymbol(sym->getName(),patval,*numlist));
   }
@@ -2693,7 +2707,10 @@ void SleighCompile::attachNames(vector<SleighSymbol *> *symlist,vector<string> *
     if (sym == (ValueSymbol *)0) continue;
     PatternValue *patval = sym->getPatternValue();
     if (patval->maxValue() + 1 != names->size()) {
-      reportError(getCurrentLocation(), "Attach name '" + sym->getName() + "' is wrong size for list");
+      ostringstream msg;
+      msg << "Attach name '" + sym->getName();
+      msg << "' (range 0.." << patval->maxValue() << ") is wrong size for list (of " << names->size() << " entries)";
+      reportError(getCurrentLocation(), msg.str());
     }
     symtab.replaceSymbol(sym,new NameSymbol(sym->getName(),patval,*names));
   }
@@ -2718,7 +2735,10 @@ void SleighCompile::attachVarnodes(vector<SleighSymbol *> *symlist,vector<Sleigh
     if (sym == (ValueSymbol *)0) continue;
     PatternValue *patval = sym->getPatternValue();
     if (patval->maxValue() + 1 != varlist->size()) {
-      reportError(getCurrentLocation(), "Attach varnode '" + sym->getName() + "' is wrong size for list");
+      ostringstream msg;
+      msg << "Attach varnode '" + sym->getName();
+      msg << "' (range 0.." << patval->maxValue() << ") is wrong size for list (of " << varlist->size() << " entries)";
+      reportError(getCurrentLocation(), msg.str());
     }
     int4 sz = 0;      
     for(int4 j=0;j<varlist->size();++j) {
@@ -2907,20 +2927,23 @@ ConstructTpl *SleighCompile::setResultStarVarnode(ConstructTpl *ct,StarQuality *
 /// The new change operation is added to the current list.
 /// When executed, the change operation will assign a new value to the given context variable
 /// using the specified expression.  The change only applies within the parsing of a single instruction.
-/// Because we are in the middle of parsing, the \b inst_next value has not been computed yet
-/// So we check to make sure the value expression doesn't use this symbol.
+/// Because we are in the middle of parsing, the \b inst_next and \b inst_next2 values have not 
+/// been computed yet.  So we check to make sure the value expression doesn't use this symbol.
 /// \param vec is the current list of change operations
 /// \param sym is the given context variable affected by the operation
 /// \param pe is the specified expression
-/// \return \b true if the expression does not use the \b inst_next symbol
+/// \return \b true if the expression does not use the \b inst_next or \b inst_next2 symbol
 bool SleighCompile::contextMod(vector<ContextChange *> *vec,ContextSymbol *sym,PatternExpression *pe)
 
 {
   vector<const PatternValue *> vallist;
   pe->listValues(vallist);
-  for(uint4 i=0;i<vallist.size();++i)
+  for(uint4 i=0;i<vallist.size();++i) {
     if (dynamic_cast<const EndInstructionValue *>(vallist[i]) != (const EndInstructionValue *)0)
       return false;
+    if (dynamic_cast<const Next2InstructionValue *>(vallist[i]) != (const Next2InstructionValue *)0)
+      return false;
+  }
   // Otherwise we generate a "temporary" change to context instruction  (ContextOp)
   ContextField *field = (ContextField *)sym->getPatternValue();
   ContextOp *op = new ContextOp(field->getStartBit(),field->getEndBit(),pe);
@@ -3577,7 +3600,7 @@ static int4 run_xml(const string &filein,SleighCompile &compiler)
   try {
     doc = xml_tree(s);
   }
-  catch(XmlError &err) {
+  catch(DecoderError &err) {
     cerr << "Unable to parse single input file as XML spec: " << filein << endl;
     exit(1);
   }

@@ -23,8 +23,6 @@ import java.util.Set;
 
 import org.junit.*;
 
-import com.google.common.collect.Range;
-
 import ghidra.app.cmd.disassemble.*;
 import ghidra.program.database.ProgramBuilder;
 import ghidra.program.disassemble.Disassembler;
@@ -35,10 +33,11 @@ import ghidra.program.model.listing.CodeUnit;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.trace.database.ToyDBTraceBuilder;
-import ghidra.trace.database.language.DBTraceGuestLanguage;
+import ghidra.trace.database.guest.DBTraceGuestPlatform;
 import ghidra.trace.database.listing.*;
 import ghidra.trace.database.memory.DBTraceMemoryManager;
 import ghidra.trace.database.memory.DBTraceMemorySpace;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.memory.TraceMemoryFlag;
 import ghidra.trace.model.memory.TraceOverlappedRegionException;
 import ghidra.trace.util.LanguageTestWatcher;
@@ -108,13 +107,15 @@ public class DBTraceDisassemblerIntegrationTest extends AbstractGhidraHeadlessIn
 				b.trace.getMemoryManager().getMemorySpace(b.language.getDefaultSpace(), true);
 			space.putBytes(0, b.addr(0x4000), b.buf(0x90));
 
-			DBTraceGuestLanguage guest = b.trace.getLanguageManager().addGuestLanguage(x86);
+			DBTraceGuestPlatform guest =
+				b.trace.getPlatformManager().addGuestPlatform(x86.getDefaultCompilerSpec());
 			guest.addMappedRange(b.addr(0x4000), b.addr(guest, 0x00400000), 0x1000);
 
-			// TODO: The more I look, the more I think I need a fully-mapped program view :(
-			// As annoying as it is, I plan to do it as a wrapper, not as an extension....
-			// The disassembler uses bookmarks, context, etc. for feedback. It'd be nice to
-			// have that
+			/*
+			 * TODO: The more I look, the more I think I need a fully-mapped program view :( As
+			 * annoying as it is, I plan to do it as a wrapper, not as an extension.... The
+			 * disassembler uses bookmarks, context, etc. for feedback. It'd be nice to have that.
+			 */
 			RegisterValue defaultContextValue =
 				b.trace.getRegisterContextManager()
 						.getDefaultContext(x86)
@@ -125,7 +126,7 @@ public class DBTraceDisassemblerIntegrationTest extends AbstractGhidraHeadlessIn
 				guest.getMappedMemBuffer(0, b.addr(guest, 0x00400000)), defaultContextValue, 1));
 
 			DBTraceCodeManager code = b.trace.getCodeManager();
-			code.instructions().addInstructionSet(Range.closed(0L, 0L), set, false);
+			code.instructions().addInstructionSet(Lifespan.at(0), guest, set, false);
 
 			DBTraceInstruction ins = code.instructions().getAt(0, b.addr(0x4000));
 			// TODO: This is great, but probably incomplete.
@@ -140,7 +141,7 @@ public class DBTraceDisassemblerIntegrationTest extends AbstractGhidraHeadlessIn
 	public void testThumbSampleProgramDB() throws Exception {
 		ProgramBuilder b = new ProgramBuilder(getName(), ProgramBuilder._ARM);
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(b.getProgram(), "Disassemble (THUMB)", true)) {
+			UndoableTransaction.start(b.getProgram(), "Disassemble (THUMB)")) {
 			MemoryBlock text = b.createMemory(".text", "b6fa2cd0", 32, "Sample", (byte) 0);
 			text.putBytes(b.addr(0xb6fa2cdc), new byte[] {
 				// GDB: stmdb sp!,  {r4,r5,r6,r7,r8,lr}

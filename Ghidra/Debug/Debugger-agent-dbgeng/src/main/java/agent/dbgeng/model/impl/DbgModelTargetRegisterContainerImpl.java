@@ -55,10 +55,12 @@ public class DbgModelTargetRegisterContainerImpl extends DbgModelTargetObjectImp
 		super(thread.getModel(), thread, "Registers", "RegisterContainer");
 		this.thread = thread.getThread();
 
-		requestElements(false);
-		changeAttributes(List.of(), List.of(), Map.of( //
-			TargetRegisterBank.DESCRIPTIONS_ATTRIBUTE_NAME, this //
-		), "Initialized");
+		if (!getModel().isSuppressDescent()) {
+			requestElements(false);
+			changeAttributes(List.of(), List.of(), Map.of( //
+				TargetRegisterBank.DESCRIPTIONS_ATTRIBUTE_NAME, this //
+			), "Initialized");
+		}
 	}
 
 	@Override
@@ -132,7 +134,7 @@ public class DbgModelTargetRegisterContainerImpl extends DbgModelTargetObjectImp
 				changeAttrs(reg, value);
 			}
 			this.values = result;
-			listeners.fire.registersUpdated(getProxy(), result);
+			broadcast().registersUpdated(getProxy(), result);
 			return result;
 		}));
 	}
@@ -157,7 +159,7 @@ public class DbgModelTargetRegisterContainerImpl extends DbgModelTargetObjectImp
 			return thread.writeRegisters(toWrite);
 			// TODO: Should probably filter only effective and normalized writes in the callback
 		}).thenAccept(__ -> {
-			listeners.fire.registersUpdated(getProxy(), values);
+			broadcast().registersUpdated(getProxy(), values);
 		}));
 	}
 

@@ -17,7 +17,6 @@ package ghidra.app.plugin.core.debug.gui.copying;
 
 import static org.junit.Assert.*;
 
-import java.awt.Color;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.util.*;
@@ -26,8 +25,7 @@ import javax.swing.JCheckBox;
 
 import org.junit.Test;
 
-import com.google.common.collect.Range;
-
+import generic.theme.GThemeDefaults.Colors.Palette;
 import ghidra.app.plugin.assembler.Assembler;
 import ghidra.app.plugin.assembler.Assemblers;
 import ghidra.app.plugin.core.debug.gui.AbstractGhidraHeadedDebuggerGUITest;
@@ -47,6 +45,7 @@ import ghidra.trace.database.breakpoint.DBTraceBreakpointManager;
 import ghidra.trace.database.memory.DBTraceMemoryManager;
 import ghidra.trace.database.program.DBTraceVariableSnapProgramView;
 import ghidra.trace.database.symbol.*;
+import ghidra.trace.model.Lifespan;
 import ghidra.trace.model.breakpoint.TraceBreakpointKind;
 import ghidra.trace.model.memory.TraceMemoryFlag;
 import ghidra.trace.model.memory.TraceMemoryState;
@@ -84,7 +83,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 
 		Address paddr = tb.addr(stSpace, 0x00400000);
 		assertTrue(AllCopiers.BYTES.isRequiresInitializedMemory());
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
 						false);
@@ -117,7 +116,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 
 		Address paddr = tb.addr(stSpace, 0x00400000);
 		assertFalse(AllCopiers.STATE.isRequiresInitializedMemory());
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
 						false);
@@ -188,13 +187,13 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 			DBTraceMemoryManager memory = tb.trace.getMemoryManager();
 			memory.createRegion(".text", 0, trng, TraceMemoryFlag.READ, TraceMemoryFlag.EXECUTE);
 			InstructionIterator iit = asm.assemble(tb.addr(0x55550000),
-				"imm r0, #1234",
-				"imm r1, #2045",
+				"imm r0, #123",
+				"imm r1, #234",
 				"add r0, r1");
 			assertTrue(iit.hasNext());
 		}
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			Address paddr = tb.addr(stSpace, 0x00400000);
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
@@ -211,10 +210,10 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 
 		ins = instructions.get(0);
 		assertEquals(tb.addr(stSpace, 0x00400000), ins.getAddress());
-		assertEquals("imm r0,#0x4d2", ins.toString());
+		assertEquals("imm r0,#0x7b", ins.toString());
 		ins = instructions.get(1);
 		assertEquals(tb.addr(stSpace, 0x00400002), ins.getAddress());
-		assertEquals("imm r1,#0x7fd", ins.toString());
+		assertEquals("imm r1,#0xea", ins.toString());
 		ins = instructions.get(2);
 		assertEquals(tb.addr(stSpace, 0x00400004), ins.getAddress());
 		assertEquals("add r0,r1", ins.toString());
@@ -242,7 +241,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 			assertTrue(iit.hasNext());
 		}
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			Address paddr = tb.addr(stSpace, 0x00400000);
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
@@ -284,13 +283,13 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		Register contextReg = tb.language.getContextBaseRegister();
 		Register longMode = tb.language.getRegister("longMode");
 		RegisterValue rv = tb.trace.getRegisterContextManager()
-				.getValueWithDefault(tb.language, contextReg, 0, tb.addr(0x55550000));
+				.getValueWithDefault(tb.host, contextReg, 0, tb.addr(0x55550000));
 		rv = rv.assign(longMode, BigInteger.ZERO);
 		Instruction checkCtx;
 		try (UndoableTransaction tid = tb.startTransaction()) {
 			DBTraceMemoryManager memory = tb.trace.getMemoryManager();
 			memory.createRegion(".text", 0, trng, TraceMemoryFlag.READ, TraceMemoryFlag.EXECUTE);
-			tb.trace.getRegisterContextManager().setValue(tb.language, rv, Range.atLeast(0L), trng);
+			tb.trace.getRegisterContextManager().setValue(tb.language, rv, Lifespan.nowOn(0), trng);
 
 			// TODO: Once GP-1426 is resolved, use the assembler
 			/*
@@ -315,7 +314,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		assertFalse(insCtx.equals(tb.trace.getRegisterContextManager()
 				.getDefaultValue(tb.language, contextReg, checkCtx.getAddress())));
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			Address paddr = tb.addr(stSpace, 0x00400000);
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
@@ -372,7 +371,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 				tb.buf(0x00, 0x03, 0x00, 0x01, 0x02));
 		}
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			Address paddr = tb.addr(stSpace, 0x00600000);
 			program.getMemory()
 					.createInitializedBlock(".data", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
@@ -432,7 +431,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 				tb.buf(0x00, 0x03, 0x00, 0x01, 0x02));
 		}
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			Address paddr = tb.addr(stSpace, 0x00600000);
 			program.getMemory()
 					.createInitializedBlock(".data", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
@@ -505,7 +504,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		}
 
 		Address paddr = tb.addr(stSpace, 0x00400000);
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Copy")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000, (byte) 0, TaskMonitor.DUMMY,
 						false);
@@ -570,7 +569,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		}
 
 		Address paddr = tb.addr(stSpace, 0x55550000);
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000,
 						(byte) 0, TaskMonitor.DUMMY, false);
@@ -616,12 +615,12 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 				TraceMemoryFlag.READ, TraceMemoryFlag.EXECUTE);
 
 			BookmarkManager bookmarks = view.getBookmarkManager();
-			bookmarks.defineType("TestType", DebuggerResources.ICON_DEBUGGER, Color.BLUE, 1);
+			bookmarks.defineType("TestType", DebuggerResources.ICON_DEBUGGER, Palette.BLUE, 1);
 			bookmarks.setBookmark(tb.addr(0x55550123), "TestType", "TestCategory", "Test Comment");
 		}
 
 		Address paddr = tb.addr(stSpace, 0x55550000);
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000,
 						(byte) 0, TaskMonitor.DUMMY, false);
@@ -645,7 +644,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		assertEquals("Test Comment", bm.getComment());
 
 		assertEquals(DebuggerResources.ICON_DEBUGGER, type.getIcon());
-		assertEquals(Color.BLUE, type.getMarkerColor());
+		assertEquals(Palette.BLUE, type.getMarkerColor());
 		assertEquals(1, type.getMarkerPriority());
 	}
 
@@ -677,7 +676,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		}
 
 		Address paddr = tb.addr(stSpace, 0x55550000);
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000,
 						(byte) 0, TaskMonitor.DUMMY, false);
@@ -720,7 +719,7 @@ public class DebuggerCopyPlanTests extends AbstractGhidraHeadedDebuggerGUITest {
 		}
 
 		Address paddr = tb.addr(stSpace, 0x55550000);
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Init")) {
 			program.getMemory()
 					.createInitializedBlock(".text", paddr, 0x10000,
 						(byte) 0, TaskMonitor.DUMMY, false);

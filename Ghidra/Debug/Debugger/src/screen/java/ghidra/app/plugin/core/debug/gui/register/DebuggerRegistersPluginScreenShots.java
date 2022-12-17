@@ -19,8 +19,6 @@ import java.math.BigInteger;
 
 import org.junit.*;
 
-import com.google.common.collect.Range;
-
 import ghidra.app.plugin.core.debug.service.tracemgr.DebuggerTraceManagerServicePlugin;
 import ghidra.app.services.DebuggerTraceManagerService;
 import ghidra.program.model.data.PointerDataType;
@@ -28,7 +26,8 @@ import ghidra.program.model.lang.Language;
 import ghidra.program.model.lang.RegisterValue;
 import ghidra.test.ToyProgramBuilder;
 import ghidra.trace.database.ToyDBTraceBuilder;
-import ghidra.trace.model.memory.TraceMemoryRegisterSpace;
+import ghidra.trace.model.Lifespan;
+import ghidra.trace.model.memory.TraceMemorySpace;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.database.UndoableTransaction;
 import help.screenshot.GhidraScreenShotGenerator;
@@ -62,7 +61,7 @@ public class DebuggerRegistersPluginScreenShots extends GhidraScreenShotGenerato
 			long snap1 = tb.trace.getTimeManager().createSnapshot("Second").getKey();
 
 			TraceThread thread = tb.getOrAddThread("[1]", snap0);
-			TraceMemoryRegisterSpace regs =
+			TraceMemorySpace regs =
 				tb.trace.getMemoryManager().getMemoryRegisterSpace(thread, true);
 			Language lang = tb.trace.getBaseLanguage();
 			regs.setValue(snap0,
@@ -94,7 +93,7 @@ public class DebuggerRegistersPluginScreenShots extends GhidraScreenShotGenerato
 			tb.trace.getCodeManager()
 					.getCodeRegisterSpace(thread, true)
 					.definedData()
-					.create(Range.atLeast(snap0), lang.getRegister("RIP"),
+					.create(Lifespan.nowOn(snap0), lang.getRegister("RIP"),
 						PointerDataType.dataType);
 
 			traceManager.openTrace(tb.trace);

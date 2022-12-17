@@ -27,8 +27,6 @@ import javax.swing.*;
 import javax.swing.table.TableColumn;
 import javax.swing.table.TableColumnModel;
 
-import com.google.common.collect.Range;
-
 import docking.ActionContext;
 import docking.action.DockingAction;
 import docking.action.DockingActionIf;
@@ -42,16 +40,14 @@ import ghidra.app.plugin.core.debug.gui.DebuggerResources.*;
 import ghidra.app.plugin.core.debug.utils.DebouncedRowWrappedEnumeratedColumnTableModel;
 import ghidra.app.services.*;
 import ghidra.framework.model.DomainObject;
-import ghidra.framework.plugintool.AutoService;
-import ghidra.framework.plugintool.ComponentProviderAdapter;
+import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.annotation.AutoServiceConsumed;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.Program;
 import ghidra.program.util.ProgramLocation;
 import ghidra.program.util.ProgramSelection;
-import ghidra.trace.model.Trace;
+import ghidra.trace.model.*;
 import ghidra.trace.model.Trace.TraceStaticMappingChangeType;
-import ghidra.trace.model.TraceDomainObjectListener;
 import ghidra.trace.model.modules.TraceStaticMapping;
 import ghidra.trace.model.modules.TraceStaticMappingManager;
 import ghidra.trace.model.program.TraceProgramView;
@@ -70,7 +66,7 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 		STATIC_ADDRESS("Static Address", String.class, StaticMappingRow::getStaticAddress),
 		LENGTH("Length", BigInteger.class, StaticMappingRow::getBigLength),
 		SHIFT("Shift", Long.class, StaticMappingRow::getShift),
-		LIFESPAN("Lifespan", Range.class, StaticMappingRow::getLifespan);
+		LIFESPAN("Lifespan", Lifespan.class, StaticMappingRow::getLifespan);
 
 		private final String header;
 		private final Class<?> cls;
@@ -103,9 +99,9 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 			extends DebouncedRowWrappedEnumeratedColumnTableModel< //
 					StaticMappingTableColumns, ObjectKey, StaticMappingRow, TraceStaticMapping> {
 
-		public MappingTableModel() {
-			super("Mappings", StaticMappingTableColumns.class, TraceStaticMapping::getObjectKey,
-				StaticMappingRow::new);
+		public MappingTableModel(PluginTool tool) {
+			super(tool, "Mappings", StaticMappingTableColumns.class,
+				TraceStaticMapping::getObjectKey, StaticMappingRow::new);
 		}
 	}
 
@@ -149,7 +145,7 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 
 	private ListenerForStaticMappingDisplay listener = new ListenerForStaticMappingDisplay();
 
-	protected final MappingTableModel mappingTableModel = new MappingTableModel();
+	protected final MappingTableModel mappingTableModel;
 
 	private JPanel mainPanel = new JPanel(new BorderLayout());
 	protected GTable mappingTable;
@@ -164,6 +160,8 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 	public DebuggerStaticMappingProvider(final DebuggerStaticMappingPlugin plugin) {
 		super(plugin.getTool(), DebuggerResources.TITLE_PROVIDER_MAPPINGS, plugin.getName(), null);
 		this.plugin = plugin;
+
+		mappingTableModel = new MappingTableModel(tool);
 
 		this.addMappingDialog = new DebuggerAddMappingDialog();
 		this.autoWiring = AutoService.wireServicesConsumed(plugin, this);
@@ -292,7 +290,7 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 
 		try {
 			addMappingDialog.setValues(progLoc.getProgram(), currentTrace, progStart, traceStart,
-				length, Range.atLeast(view.getSnap()));
+				length, Lifespan.nowOn(view.getSnap()));
 		}
 		catch (AddressOverflowException e) {
 			Msg.showError(this, null, "Add Mapping", "Error populating dialog");
@@ -303,12 +301,10 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 		// TODO: Action to adjust life span?
 		// Note: provider displays mappings for all time, so delete means delete, not truncate
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(currentTrace, "Remove Static Mappings", false)) {
+			UndoableTransaction.start(currentTrace, "Remove Static Mappings")) {
 			for (StaticMappingRow mapping : ctx.getSelectedMappings()) {
 				mapping.getMapping().delete();
 			}
-			// TODO: Do I want all-or-nothing among all transactions?
-			tid.commit();
 		}
 	}
 
@@ -324,7 +320,7 @@ public class DebuggerStaticMappingProvider extends ComponentProviderAdapter
 			Set<TraceStaticMapping> mappingSel = new HashSet<>();
 			for (AddressRange range : progSel) {
 				mappingSel.addAll(mappingManager.findAllOverlapping(range,
-					Range.singleton(traceManager.getCurrentSnap())));
+					Lifespan.at(traceManager.getCurrentSnap())));
 			}
 			setSelectedMappings(mappingSel);
 			return;

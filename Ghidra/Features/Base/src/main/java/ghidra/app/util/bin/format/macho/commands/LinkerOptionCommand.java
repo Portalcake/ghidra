@@ -15,9 +15,10 @@
  */
 package ghidra.app.util.bin.format.macho.commands;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+
+import java.io.IOException;
 
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.macho.MachHeader;
@@ -31,9 +32,7 @@ import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
 
 /**
- * Represents a linker_option_command structure
- * 
- * @see <a href="https://opensource.apple.com/source/xnu/xnu-7195.81.3/EXTERNAL_HEADERS/mach-o/loader.h.auto.html">mach-o/loader.h</a> 
+ * Represents a linker_option_command structure 
  */
 public class LinkerOptionCommand extends LoadCommand {
 
@@ -41,14 +40,13 @@ public class LinkerOptionCommand extends LoadCommand {
 	private List<String> linkerOptions;
 
 	LinkerOptionCommand(BinaryReader reader) throws IOException {
-		initLoadCommand(reader);
+		super(reader);
 		count = reader.readNextInt();
 		linkerOptions = new ArrayList<>(count);
-		long readerIndex = reader.getPointerIndex();
+		BinaryReader stringReader = reader.clone();
 		for (int i = 0; i < count; i++) {
-			String str = reader.readTerminatedString(readerIndex, '\0');
+			String str = stringReader.readNextAsciiString();
 			linkerOptions.add(str);
-			readerIndex += str.length() + 1;
 		}
 	}
 	

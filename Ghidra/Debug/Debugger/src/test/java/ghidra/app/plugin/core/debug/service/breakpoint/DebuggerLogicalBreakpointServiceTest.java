@@ -86,7 +86,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 
 		public synchronized void assertAgreesWithService() {
 			waitForPass(() -> {
-				assertEquals(breakpointService.getAllBreakpoints(), changeListener.current);
+				assertEquals(breakpointService.getAllBreakpoints(), current);
 			});
 		}
 	}
@@ -256,7 +256,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 
 	protected void addProgramTextBlock(Program p) throws Throwable {
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(program, "Add .text block", true)) {
+			UndoableTransaction.start(program, "Add .text block")) {
 			p.getMemory()
 					.createInitializedBlock(".text", addr(p, 0x00400000), 0x1000, (byte) 0,
 						monitor, false);
@@ -281,7 +281,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		TraceMemoryRegion textRegion =
 			waitFor(() -> r.getTraceMemoryRegion(region), "Recorder missed region: " + region);
 		try (UndoableTransaction tid =
-			UndoableTransaction.start(t, "Add .text mapping", true)) {
+			UndoableTransaction.start(t, "Add .text mapping")) {
 			DebuggerStaticMappingUtils.addMapping(
 				new DefaultTraceLocation(t, null, textRegion.getLifespan(),
 					textRegion.getMinAddress()),
@@ -292,7 +292,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 
 	protected void removeTextMapping(TraceRecorder r, Program p) throws Throwable {
 		Trace t = r.getTrace();
-		try (UndoableTransaction tid = UndoableTransaction.start(t, "Remove .text mapping", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(t, "Remove .text mapping")) {
 			TraceStaticMapping mapping =
 				t.getStaticMappingManager().findContaining(addr(t, 0x55550000), r.getSnap());
 			mapping.delete();
@@ -341,7 +341,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 	}
 
 	protected void addProgramBreakpoints(Program p) throws Throwable {
-		try (UndoableTransaction tid = UndoableTransaction.start(p, "Create bookmarks", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(p, "Create bookmarks")) {
 			enBm = p.getBookmarkManager()
 					.setBookmark(addr(p, 0x00400123),
 						LogicalBreakpoint.BREAKPOINT_ENABLED_BOOKMARK_TYPE, "SW_EXECUTE;1", "");
@@ -362,7 +362,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 	}
 
 	protected void removeProgramBreakpoints(Program p) throws Throwable {
-		try (UndoableTransaction tid = UndoableTransaction.start(p, "Remove breakpoints", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(p, "Remove breakpoints")) {
 			p.getBookmarkManager().removeBookmark(enBm);
 			p.getBookmarkManager().removeBookmark(disBm);
 		}
@@ -1160,12 +1160,13 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		expectMappingChange(() -> addTextMapping(recorder1, text, program));
 		waitForSwing();
 
-		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort", false)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort")) {
 			addTargetSoftwareBreakpoint(recorder1, text);
 			waitForDomainObject(trace);
 
 			// Sanity
 			assertLogicalBreakpointForMappedSoftwareBreakpoint(trace);
+			tid.abort();
 		}
 		waitForDomainObject(trace);
 
@@ -1197,7 +1198,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		waitForDomainObject(trace);
 		changeListener.assertAgreesWithService();
 
-		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort", false)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort")) {
 			expectMappingChange(() -> addTextMapping(recorder1, text, program));
 			waitForSwing();
 
@@ -1226,7 +1227,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		addProgramTextBlock(program);
 		TestTargetMemoryRegion text = addTargetTextRegion(mb.testProcess1);
 
-		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort", false)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will abort")) {
 			addTargetSoftwareBreakpoint(recorder1, text);
 
 			expectMappingChange(() -> addTextMapping(recorder1, text, program));
@@ -1260,12 +1261,13 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		expectMappingChange(() -> addTextMapping(recorder1, text, program));
 		waitForSwing();
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Will abort", false)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Will abort")) {
 			addProgramBreakpoints(program);
 			waitForDomainObject(program);
 
 			// Sanity
 			assertLogicalBreakpointsForMappedBookmarks(trace);
+			tid.abort();
 		}
 		waitForDomainObject(program);
 
@@ -1285,16 +1287,22 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		addProgramTextBlock(program);
 		TestTargetMemoryRegion text = addTargetTextRegion(mb.testProcess1);
 
-		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will undo", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(trace, "Will undo")) {
 			addTargetSoftwareBreakpoint(recorder1, text);
 			expectMappingChange(() -> addTextMapping(recorder1, text, program));
 		}
 		waitForDomainObject(trace);
 
+		waitOn(mappingService.changesSettled());
+		waitOn(breakpointService.changesSettled());
+
 		// Sanity
 		assertLogicalBreakpointForMappedSoftwareBreakpoint(trace);
 
 		expectMappingChange(() -> undo(trace));
+
+		waitOn(mappingService.changesSettled());
+		waitOn(breakpointService.changesSettled());
 
 		// NB. The bookmark remains
 		LogicalBreakpoint one = Unique.assertOne(breakpointService.getAllBreakpoints());
@@ -1321,7 +1329,7 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		expectMappingChange(() -> addTextMapping(recorder1, text, program));
 		waitForSwing();
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Will undo", true)) {
+		try (UndoableTransaction tid = UndoableTransaction.start(program, "Will undo")) {
 			addProgramBreakpoints(program);
 		}
 		waitForDomainObject(program);
@@ -1413,16 +1421,13 @@ public class DebuggerLogicalBreakpointServiceTest extends AbstractGhidraHeadedDe
 		LogicalBreakpoint lb = Unique.assertOne(breakpointService.getAllBreakpoints());
 
 		// Simulate a step, which should also cause snap advance in recorder
-		long oldSnap = recorder1.getSnap();
 		mb.testModel.session.simulateStep(mb.testThread1);
-		waitOn(mb.testModel.flushEvents());
-		// NB. recorder may have its own threads / queues
-		waitForPass(() -> assertTrue(recorder1.getSnap() > oldSnap));
+		waitRecorder(recorder1);
 
 		waitOn(lb.delete());
 
 		waitForPass(() -> {
-			assertTrue(breakpointService.getAllBreakpoints().isEmpty());
+			assertEquals(0, breakpointService.getAllBreakpoints().size());
 		});
 	}
 
