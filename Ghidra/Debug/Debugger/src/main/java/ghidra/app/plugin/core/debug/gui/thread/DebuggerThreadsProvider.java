@@ -15,11 +15,11 @@
  */
 package ghidra.app.plugin.core.debug.gui.thread;
 
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.Rectangle;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.util.*;
-import java.util.List;
+import java.util.Objects;
 
 import javax.swing.*;
 import javax.swing.event.ListSelectionEvent;
@@ -33,7 +33,9 @@ import docking.WindowPosition;
 import docking.action.*;
 import docking.widgets.HorizontalTabPanel;
 import docking.widgets.HorizontalTabPanel.TabListCellRenderer;
+import docking.widgets.dialogs.InputDialog;
 import docking.widgets.table.*;
+import docking.widgets.table.RangeCursorTableHeaderRenderer.SeekListener;
 import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.DebuggerPluginPackage;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources;
@@ -53,8 +55,9 @@ import ghidra.trace.model.Trace.TraceThreadChangeType;
 import ghidra.trace.model.TraceDomainObjectListener;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.model.thread.TraceThreadManager;
-import ghidra.trace.model.time.TraceSchedule;
 import ghidra.trace.model.time.TraceSnapshot;
+import ghidra.trace.model.time.schedule.TraceSchedule;
+import ghidra.util.Msg;
 import ghidra.util.Swing;
 import ghidra.util.database.ObjectKey;
 import ghidra.util.datastruct.CollectionChangeListener;
@@ -85,179 +88,13 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 		return true;
 	}
 
-	protected class StepSnapBackwardAction extends AbstractStepSnapBackwardAction {
-		public static final String GROUP = DebuggerResources.GROUP_CONTROL;
-
-		public StepSnapBackwardAction() {
-			super(plugin);
-			setToolBarData(new ToolBarData(ICON, GROUP, "1"));
-			addLocalAction(this);
-			setEnabled(false);
-		}
-
-		@Override
-		public void actionPerformed(ActionContext context) {
-			if (current.getTime().isSnapOnly()) {
-				traceManager.activateSnap(current.getSnap() - 1);
-			}
-			else {
-				traceManager.activateSnap(current.getSnap());
-			}
-		}
-
-		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			if (current.getTrace() == null) {
-				return false;
-			}
-			if (!current.getTime().isSnapOnly()) {
-				return true;
-			}
-			if (current.getSnap() <= 0) {
-				return false;
-			}
-			return true;
-		}
-	}
-
-	protected class StepTickBackwardAction extends AbstractStepTickBackwardAction {
-		public static final String GROUP = DebuggerResources.GROUP_CONTROL;
-
-		public StepTickBackwardAction() {
-			super(plugin);
-			setToolBarData(new ToolBarData(ICON, GROUP, "2"));
-			addLocalAction(this);
-			setEnabled(false);
-		}
-
-		@Override
-		public void actionPerformed(ActionContext context) {
-			if (current.getTrace() == null) {
-				return;
-			}
-			TraceSchedule time = current.getTime().steppedBackward(current.getTrace(), 1);
-			if (time == null) {
-				return;
-			}
-			traceManager.activateTime(time);
-		}
-
-		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			if (emulationService == null) {
-				return false;
-			}
-			if (current.getTrace() == null) {
-				return false;
-			}
-			if (current.getTime().steppedBackward(current.getTrace(), 1) == null) {
-				return false;
-			}
-			return true;
-		}
-	}
-
-	protected class StepTickForwardAction extends AbstractStepTickForwardAction {
-		public static final String GROUP = DebuggerResources.GROUP_CONTROL;
-
-		public StepTickForwardAction() {
-			super(plugin);
-			setToolBarData(new ToolBarData(ICON, GROUP, "3"));
-			addLocalAction(this);
-			setEnabled(false);
-		}
-
-		@Override
-		public void actionPerformed(ActionContext context) {
-			if (current.getThread() == null) {
-				return;
-			}
-			TraceSchedule time = current.getTime().steppedForward(current.getThread(), 1);
-			traceManager.activateTime(time);
-		}
-
-		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			if (emulationService == null) {
-				return false;
-			}
-			if (current.getThread() == null) {
-				return false;
-			}
-			return true;
-		}
-	}
-
-	protected class StepSnapForwardAction extends AbstractStepSnapForwardAction {
-		public static final String GROUP = DebuggerResources.GROUP_CONTROL;
-
-		public StepSnapForwardAction() {
-			super(plugin);
-			setToolBarData(new ToolBarData(ICON, GROUP, "4"));
-			addLocalAction(this);
-			setEnabled(false);
-		}
-
-		@Override
-		public void actionPerformed(ActionContext context) {
-			traceManager.activateSnap(current.getSnap() + 1);
-		}
-
-		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			Trace curTrace = current.getTrace();
-			if (curTrace == null) {
-				return false;
-			}
-			Long maxSnap = curTrace.getTimeManager().getMaxSnap();
-			if (maxSnap == null || current.getSnap() >= maxSnap) {
-				return false;
-			}
-			return true;
-		}
-	}
-
-	protected class SeekTracePresentAction extends AbstractSeekTracePresentAction
-			implements BooleanChangeAdapter {
-		public static final String GROUP = "zz";
-
-		public SeekTracePresentAction() {
-			super(plugin);
-			setToolBarData(new ToolBarData(ICON, GROUP));
-			addLocalAction(this);
-			setSelected(traceManager == null ? false : traceManager.isAutoActivatePresent());
-			traceManager.addAutoActivatePresentChangeListener(this);
-		}
-
-		@Override
-		public boolean isEnabledForContext(ActionContext context) {
-			return traceManager != null;
-		}
-
-		@Override
-		public void actionPerformed(ActionContext context) {
-			if (traceManager == null) {
-				return;
-			}
-			traceManager.setAutoActivatePresent(isSelected());
-		}
-
-		@Override
-		public void changed(Boolean value) {
-			if (isSelected() == value) {
-				return;
-			}
-			setSelected(value);
-		}
-	}
-
 	protected static class ThreadTableModel
 			extends RowWrappedEnumeratedColumnTableModel< //
 					ThreadTableColumns, ObjectKey, ThreadRow, TraceThread> {
 
 		public ThreadTableModel(DebuggerThreadsProvider provider) {
-			super("Threads", ThreadTableColumns.class, TraceThread::getObjectKey,
-				t -> new ThreadRow(provider.modelService, t));
+			super(provider.getTool(), "Threads", ThreadTableColumns.class,
+				TraceThread::getObjectKey, t -> new ThreadRow(provider.modelService, t));
 		}
 	}
 
@@ -319,9 +156,9 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 
 	private final DebuggerThreadsPlugin plugin;
 
-	// @AutoServiceConsumed  by method
+	// @AutoServiceConsumed by method
 	private DebuggerModelService modelService;
-	@AutoServiceConsumed // NB, also by method
+	// @AutoServiceConsumed by method
 	private DebuggerTraceManagerService traceManager;
 	@AutoServiceConsumed // NB, also by method
 	private DebuggerEmulationService emulationService;
@@ -335,6 +172,10 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 	private final ThreadsListener threadsListener = new ThreadsListener();
 	private final CollectionChangeListener<TraceRecorder> recordersListener =
 		new RecordersChangeListener();
+	private final BooleanChangeAdapter activatePresentChangeListener =
+		this::changedAutoActivatePresent;
+	private final BooleanChangeAdapter synchronizeFocusChangeListener =
+		this::changedSynchronizeFocus;
 	/* package access for testing */
 	final RangeTableCellRenderer<Long> rangeRenderer = new RangeTableCellRenderer<>();
 	final RangeCursorTableHeaderRenderer<Long> headerRenderer =
@@ -352,13 +193,23 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 	private ActionContext myActionContext;
 
 	DockingAction actionSaveTrace;
-	StepSnapBackwardAction actionStepSnapBackward;
-	StepTickBackwardAction actionStepTickBackward;
-	StepTickForwardAction actionStepTickForward;
-	StepSnapForwardAction actionStepSnapForward;
-	SeekTracePresentAction actionSeekTracePresent;
+	DockingAction actionStepSnapBackward;
+	DockingAction actionEmulateTickBackward;
+	DockingAction actionEmulateTickForward;
+	DockingAction actionEmulateTickSkipForward;
+	DockingAction actionStepSnapForward;
+	ToggleDockingAction actionSeekTracePresent;
 	ToggleDockingAction actionSyncFocus;
-	Set<Object> strongRefs = new HashSet<>(); // Eww
+	DockingAction actionGoToTime;
+
+	DockingAction actionCloseTrace;
+	DockingAction actionCloseOtherTraces;
+	DockingAction actionCloseDeadTraces;
+	DockingAction actionCloseAllTraces;
+
+	// strong refs
+	ToToggleSelectionListener toToggleSelectionListener;
+	SeekListener seekListener;
 
 	public DebuggerThreadsProvider(final DebuggerThreadsPlugin plugin) {
 		super(plugin.getTool(), DebuggerResources.TITLE_PROVIDER_THREADS, plugin.getName());
@@ -372,20 +223,13 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 
 		buildMainPanel();
 
-		// TODO: Consider a custom cell renderer in the table instead of a timeline widget?
-		// TODO: Should I receive clicks on that renderer to seek to a given snap?
 		setDefaultWindowPosition(WindowPosition.BOTTOM);
 
-		myActionContext = new DebuggerSnapActionContext(0);
+		myActionContext = new DebuggerSnapActionContext(current.getTrace(), current.getViewSnap());
 		createActions();
 		contextChanged();
 
 		setVisible(true);
-	}
-
-	private <T> T strongRef(T t) {
-		strongRefs.add(t);
-		return t;
 	}
 
 	@AutoServiceConsumed
@@ -401,9 +245,21 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 
 	@AutoServiceConsumed
 	public void setTraceManager(DebuggerTraceManagerService traceManager) {
-		if (traceManager != null && actionSeekTracePresent != null) {
-			actionSeekTracePresent.setSelected(traceManager.isAutoActivatePresent());
-			actionSyncFocus.setSelected(traceManager.isSynchronizeFocus());
+		if (this.traceManager != null) {
+			this.traceManager
+					.removeAutoActivatePresentChangeListener(activatePresentChangeListener);
+			this.traceManager.removeSynchronizeFocusChangeListener(synchronizeFocusChangeListener);
+		}
+		this.traceManager = traceManager;
+		if (traceManager != null) {
+			traceManager.addAutoActivatePresentChangeListener(activatePresentChangeListener);
+			traceManager.addSynchronizeFocusChangeListener(synchronizeFocusChangeListener);
+			if (actionSeekTracePresent != null) {
+				actionSeekTracePresent.setSelected(traceManager.isAutoActivatePresent());
+			}
+			if (actionSyncFocus != null) {
+				actionSyncFocus.setSelected(traceManager.isSynchronizeFocus());
+			}
 		}
 		contextChanged();
 	}
@@ -521,15 +377,20 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 	}
 
 	private void rowActivated(ThreadRow row) {
+		if (row == null) {
+			return;
+		}
 		TraceThread thread = row.getThread();
 		Trace trace = thread.getTrace();
 		TraceRecorder recorder = modelService.getRecorder(trace);
-		if (recorder != null) {
-			TargetThread targetThread = recorder.getTargetThread(thread);
-			if (targetThread != null && targetThread.isValid()) {
-				DebugModelConventions.requestActivation(targetThread);
-			}
+		if (recorder == null) {
+			return;
 		}
+		TargetThread targetThread = recorder.getTargetThread(thread);
+		if (targetThread == null || !targetThread.isValid()) {
+			return;
+		}
+		DebugModelConventions.requestActivation(targetThread);
 	}
 
 	protected void buildMainPanel() {
@@ -546,6 +407,11 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 
 		threadTable.getSelectionModel().addListSelectionListener(this::threadRowSelected);
 		threadTable.addMouseListener(new MouseAdapter() {
+			@Override
+			public void mousePressed(MouseEvent e) {
+				setThreadRowActionContext();
+			}
+
 			@Override
 			public void mouseReleased(MouseEvent e) {
 				int selectedRow = threadTable.getSelectedRow();
@@ -576,15 +442,13 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 		list.addMouseListener(new MouseAdapter() {
 			@Override
 			public void mousePressed(MouseEvent e) {
-				checkTraceTabPopupViaMouse(e);
+				setTraceTabActionContext(e);
 			}
 
 			@Override
 			public void mouseReleased(MouseEvent e) {
-				checkTraceTabPopupViaMouse(e);
 			}
 		});
-		// TODO: The popup key? Only seems to have rawCode=0x93 (147) in Swing
 		mainPanel.add(traceTabs, BorderLayout.NORTH);
 
 		TableColumnModel columnModel = threadTable.getColumnModel();
@@ -603,78 +467,201 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 		colPlot.setCellRenderer(rangeRenderer);
 		colPlot.setHeaderRenderer(headerRenderer);
 
-		headerRenderer.addSeekListener(threadTable, ThreadTableColumns.PLOT.ordinal(), pos -> {
+		headerRenderer.addSeekListener(seekListener = pos -> {
 			long snap = Math.round(pos);
 			if (current.getTrace() == null || snap < 0) {
 				snap = 0;
 			}
 			traceManager.activateSnap(snap);
-			myActionContext = new DebuggerSnapActionContext(snap);
+			myActionContext = new DebuggerSnapActionContext(current.getTrace(), snap);
 			contextChanged();
 		});
 	}
 
-	private void checkTraceTabPopupViaMouse(MouseEvent e) {
-		if (!e.isPopupTrigger()) {
-			return;
-		}
-		JList<Trace> list = traceTabs.getList();
-		int i = list.locationToIndex(e.getPoint());
-		if (i < 0) {
-			return;
-		}
-		Rectangle cell = list.getCellBounds(i, i);
-		if (!cell.contains(e.getPoint())) {
-			return;
-		}
-		showTraceTabPopup(e.getComponent(), e.getPoint(), i);
-	}
-
-	private void showTraceTabPopup(Component comp, Point p, int i) {
-		// TODO: Make this use action contexts and docking actions instead
-		traceTabPopupMenu.removeAll();
-		final Trace trace = traceTabs.getItem(i);
-		JMenuItem closeItem =
-			new JMenuItem("Close " + trace.getName(), DebuggerResources.ICON_CLOSE);
-		closeItem.addActionListener(evt -> {
-			traceManager.closeTrace(trace);
-		});
-		JMenuItem closeOthers = new JMenuItem("Close Others", DebuggerResources.ICON_CLOSE);
-		closeOthers.addActionListener(evt -> {
-			traceManager.closeOtherTraces(trace);
-		});
-		JMenuItem closeDead = new JMenuItem("Close Dead", DebuggerResources.ICON_CLOSE);
-		closeDead.addActionListener(evt -> {
-			traceManager.closeDeadTraces();
-		});
-		JMenuItem closeAll = new JMenuItem("Close All", DebuggerResources.ICON_CLOSE);
-		closeAll.addActionListener(evt -> {
-			for (Trace t : List.copyOf(traceManager.getOpenTraces())) {
-				traceManager.closeTrace(t);
-			}
-		});
-		traceTabPopupMenu.add(closeItem);
-		traceTabPopupMenu.addSeparator();
-		traceTabPopupMenu.add(closeOthers);
-		traceTabPopupMenu.add(closeDead);
-		traceTabPopupMenu.add(closeAll);
-		traceTabPopupMenu.show(comp, p.x, p.y);
-	}
-
 	protected void createActions() {
-		// TODO: Make other actions use builder?
-		actionStepSnapBackward = new StepSnapBackwardAction();
-		actionStepTickBackward = new StepTickBackwardAction();
-		actionStepTickForward = new StepTickForwardAction();
-		actionStepSnapForward = new StepSnapForwardAction();
-		actionSeekTracePresent = new SeekTracePresentAction();
+		actionStepSnapBackward = StepSnapBackwardAction.builder(plugin)
+				.enabledWhen(this::isStepSnapBackwardEnabled)
+				.enabled(false)
+				.onAction(this::activatedStepSnapBackward)
+				.buildAndInstallLocal(this);
+		actionEmulateTickBackward = EmulateTickBackwardAction.builder(plugin)
+				.enabledWhen(this::isEmulateTickBackwardEnabled)
+				.onAction(this::activatedEmulateTickBackward)
+				.buildAndInstallLocal(this);
+		actionEmulateTickForward = EmulateTickForwardAction.builder(plugin)
+				.enabledWhen(this::isEmulateTickForwardEnabled)
+				.onAction(this::activatedEmulateTickForward)
+				.buildAndInstallLocal(this);
+		actionEmulateTickSkipForward = EmulateSkipTickForwardAction.builder(plugin)
+				.enabledWhen(this::isEmulateSkipTickForwardEnabled)
+				.onAction(this::activatedEmulateSkipTickForward)
+				.buildAndInstallLocal(this);
+		actionStepSnapForward = StepSnapForwardAction.builder(plugin)
+				.enabledWhen(this::isStepSnapForwardEnabled)
+				.enabled(false)
+				.onAction(this::activatedStepSnapForward)
+				.buildAndInstallLocal(this);
+		actionSeekTracePresent = SeekTracePresentAction.builder(plugin)
+				.enabledWhen(this::isSeekTracePresentEnabled)
+				.onAction(this::toggledSeekTracePresent)
+				.selected(traceManager == null ? false : traceManager.isAutoActivatePresent())
+				.buildAndInstallLocal(this);
+
 		actionSyncFocus = SynchronizeFocusAction.builder(plugin)
 				.selected(traceManager != null && traceManager.isSynchronizeFocus())
 				.enabledWhen(c -> traceManager != null)
 				.onAction(c -> toggleSyncFocus(actionSyncFocus.isSelected()))
 				.buildAndInstallLocal(this);
-		traceManager.addSynchronizeFocusChangeListener(
-			strongRef(new ToToggleSelectionListener(actionSyncFocus)));
+		actionGoToTime = GoToTimeAction.builder(plugin)
+				.enabledWhen(c -> current.getTrace() != null)
+				.onAction(c -> activatedGoToTime())
+				.buildAndInstallLocal(this);
+		traceManager.addSynchronizeFocusChangeListener(toToggleSelectionListener =
+			new ToToggleSelectionListener(actionSyncFocus));
+
+		actionCloseTrace = CloseTraceAction.builderPopup(plugin)
+				.withContext(DebuggerTraceFileActionContext.class)
+				.popupWhen(c -> c.getTrace() != null)
+				.onAction(c -> traceManager.closeTrace(c.getTrace()))
+				.buildAndInstallLocal(this);
+		actionCloseAllTraces = CloseAllTracesAction.builderPopup(plugin)
+				.withContext(DebuggerTraceFileActionContext.class)
+				.popupWhen(c -> !traceManager.getOpenTraces().isEmpty())
+				.onAction(c -> traceManager.closeAllTraces())
+				.buildAndInstallLocal(this);
+		actionCloseOtherTraces = CloseOtherTracesAction.builderPopup(plugin)
+				.withContext(DebuggerTraceFileActionContext.class)
+				.popupWhen(c -> traceManager.getOpenTraces().size() > 1 && c.getTrace() != null)
+				.onAction(c -> traceManager.closeOtherTraces(c.getTrace()))
+				.buildAndInstallLocal(this);
+		actionCloseDeadTraces = CloseDeadTracesAction.builderPopup(plugin)
+				.withContext(DebuggerTraceFileActionContext.class)
+				.popupWhen(c -> !traceManager.getOpenTraces().isEmpty() && modelService != null)
+				.onAction(c -> traceManager.closeDeadTraces())
+				.buildAndInstallLocal(this);
+	}
+
+	private boolean isStepSnapBackwardEnabled(ActionContext context) {
+		if (current.getTrace() == null) {
+			return false;
+		}
+		if (!current.getTime().isSnapOnly()) {
+			return true;
+		}
+		if (current.getSnap() <= 0) {
+			return false;
+		}
+		return true;
+	}
+
+	private void activatedStepSnapBackward(ActionContext context) {
+		if (current.getTime().isSnapOnly()) {
+			traceManager.activateSnap(current.getSnap() - 1);
+		}
+		else {
+			traceManager.activateSnap(current.getSnap());
+		}
+	}
+
+	private boolean isEmulateTickBackwardEnabled(ActionContext context) {
+		if (emulationService == null) {
+			return false;
+		}
+		if (current.getTrace() == null) {
+			return false;
+		}
+		if (current.getTime().steppedBackward(current.getTrace(), 1) == null) {
+			return false;
+		}
+		return true;
+	}
+
+	private void activatedEmulateTickBackward(ActionContext context) {
+		if (current.getTrace() == null) {
+			return;
+		}
+		TraceSchedule time = current.getTime().steppedBackward(current.getTrace(), 1);
+		if (time == null) {
+			return;
+		}
+		traceManager.activateTime(time);
+	}
+
+	private boolean isEmulateTickForwardEnabled(ActionContext context) {
+		if (emulationService == null) {
+			return false;
+		}
+		if (current.getThread() == null) {
+			return false;
+		}
+		return true;
+	}
+
+	private void activatedEmulateTickForward(ActionContext context) {
+		if (current.getThread() == null) {
+			return;
+		}
+		TraceSchedule time = current.getTime().steppedForward(current.getThread(), 1);
+		traceManager.activateTime(time);
+	}
+
+	private boolean isEmulateSkipTickForwardEnabled(ActionContext context) {
+		if (emulationService == null) {
+			return false;
+		}
+		if (current.getThread() == null) {
+			return false;
+		}
+		return true;
+	}
+
+	private void activatedEmulateSkipTickForward(ActionContext context) {
+		if (current.getThread() == null) {
+			return;
+		}
+		TraceSchedule time = current.getTime().skippedForward(current.getThread(), 1);
+		traceManager.activateTime(time);
+	}
+
+	private boolean isStepSnapForwardEnabled(ActionContext context) {
+		Trace curTrace = current.getTrace();
+		if (curTrace == null) {
+			return false;
+		}
+		Long maxSnap = curTrace.getTimeManager().getMaxSnap();
+		if (maxSnap == null || current.getSnap() >= maxSnap) {
+			return false;
+		}
+		return true;
+	}
+
+	private void activatedStepSnapForward(ActionContext contetxt) {
+		traceManager.activateSnap(current.getSnap() + 1);
+	}
+
+	private boolean isSeekTracePresentEnabled(ActionContext context) {
+		return traceManager != null;
+	}
+
+	private void toggledSeekTracePresent(ActionContext context) {
+		if (traceManager == null) {
+			return;
+		}
+		traceManager.setAutoActivatePresent(actionSeekTracePresent.isSelected());
+	}
+
+	private void changedAutoActivatePresent(boolean value) {
+		if (actionSeekTracePresent == null || actionSeekTracePresent.isSelected()) {
+			return;
+		}
+		actionSeekTracePresent.setSelected(value);
+	}
+
+	private void changedSynchronizeFocus(boolean value) {
+		if (actionSyncFocus == null || actionSyncFocus.isSelected()) {
+			return;
+		}
+		actionSyncFocus.setSelected(value);
 	}
 
 	private void toggleSyncFocus(boolean enabled) {
@@ -684,24 +671,66 @@ public class DebuggerThreadsProvider extends ComponentProviderAdapter {
 		traceManager.setSynchronizeFocus(enabled);
 	}
 
+	private void activatedGoToTime() {
+		InputDialog dialog =
+			new InputDialog("Go To Time", "Schedule:", current.getTime().toString());
+		tool.showDialog(dialog);
+		if (dialog.isCanceled()) {
+			return;
+		}
+		try {
+			TraceSchedule time = TraceSchedule.parse(dialog.getValue());
+			traceManager.activateTime(time);
+		}
+		catch (IllegalArgumentException e) {
+			Msg.showError(this, getComponent(), "Go To Time", "Could not parse schedule");
+		}
+	}
+
+	private Trace computeClickedTraceTab(MouseEvent e) {
+		JList<Trace> list = traceTabs.getList();
+		int i = list.locationToIndex(e.getPoint());
+		if (i < 0) {
+			return null;
+		}
+		Rectangle cell = list.getCellBounds(i, i);
+		if (!cell.contains(e.getPoint())) {
+			return null;
+		}
+		return traceTabs.getItem(i);
+	}
+
+	private Trace setTraceTabActionContext(MouseEvent e) {
+		Trace newTrace = e == null ? traceTabs.getSelectedItem() : computeClickedTraceTab(e);
+		actionCloseTrace.getPopupMenuData()
+				.setMenuItemName(
+					CloseTraceAction.NAME_PREFIX + (newTrace == null ? "..." : newTrace.getName()));
+		myActionContext = new DebuggerTraceFileActionContext(newTrace);
+		contextChanged();
+		return newTrace;
+	}
+
 	private void traceTabSelected(ListSelectionEvent e) {
 		if (e.getValueIsAdjusting()) {
 			return;
 		}
-		Trace newTrace = traceTabs.getSelectedItem();
-		myActionContext = new DebuggerThreadActionContext(newTrace, null);
-		contextChanged();
+		Trace newTrace = setTraceTabActionContext(null);
 		cbCoordinateActivation.invoke(() -> traceManager.activateTrace(newTrace));
+	}
+
+	private ThreadRow setThreadRowActionContext() {
+		ThreadRow row = threadFilterPanel.getSelectedItem();
+		myActionContext = new DebuggerThreadActionContext(current.getTrace(),
+			row == null ? null : row.getThread());
+		contextChanged();
+		return row;
 	}
 
 	private void threadRowSelected(ListSelectionEvent e) {
 		if (e.getValueIsAdjusting()) {
 			return;
 		}
-		ThreadRow row = threadFilterPanel.getSelectedItem();
-		myActionContext = new DebuggerThreadActionContext(current.getTrace(),
-			row == null ? null : row.getThread());
-		contextChanged();
+		ThreadRow row = setThreadRowActionContext();
 		if (row != null && traceManager != null) {
 			cbCoordinateActivation.invoke(() -> traceManager.activateThread(row.getThread()));
 		}

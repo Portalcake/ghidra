@@ -28,7 +28,7 @@ import ghidra.program.model.data.*;
 import ghidra.util.exception.UsrException;
 
 public class StructureEditorUnlockedActions4Test
-		extends AbstractStructureEditorUnlockedActionsTest {
+		extends AbstractStructureEditorTest {
 
 	@Test
 	public void testChangeSizeToZero() throws Exception {
@@ -55,6 +55,7 @@ public class StructureEditorUnlockedActions4Test
 		invoke(applyAction);
 		assertTrue(complexStructure.isEquivalent(model.viewComposite));
 		assertEquals(1, complexStructure.getLength());
+		assertTrue(complexStructure.isNotYetDefined());
 		assertTrue(complexStructure.isZeroLength());
 	}
 
@@ -118,7 +119,7 @@ public class StructureEditorUnlockedActions4Test
 		invoke(duplicateAction);
 		assertEquals(num, model.getNumComponents());
 		assertEquals(len, model.getLength());
-		checkSelection(new int[] { 1 });
+		checkSelection(new int[] { 2 });
 		assertEquals(getDataType(1), dt1);
 		assertEquals(getDataType(2), dt1);
 		assertEquals(getDataType(3), dt2);

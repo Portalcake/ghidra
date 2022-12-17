@@ -34,7 +34,7 @@ public class PEx64UnwindInfoDataType extends DynamicDataType {
 	private final static int UNWIND_OP_INFO_FIELD_LENGTH = 0x04;
 
 	private final static DataType BYTE = ByteDataType.dataType;
-	private final static DataType IBO32 = new ImageBaseOffset32DataType();
+	private final static DataType IBO32 = new IBO32DataType();
 
 	public PEx64UnwindInfoDataType() {
 		this(null);
@@ -108,9 +108,8 @@ public class PEx64UnwindInfoDataType extends DynamicDataType {
 			if (hasExceptionHandler(flags) || hasUnwindHandler(flags)) {
 				struct.add(IBO32, "ExceptionHandler", null);
 				if (hasUnwindHandler(flags)) {
-					// NOTE: Dynamic structure does not reflect flex-array
-					struct.setFlexibleArrayComponent(UnsignedLongDataType.dataType, "ExceptionData",
-						null);
+					struct.add(new ArrayDataType(UnsignedLongDataType.dataType, 0, -1),
+						"ExceptionData", null);
 				}
 			}
 			else if (hasChainedUnwindInfo(flags)) {
@@ -132,14 +131,7 @@ public class PEx64UnwindInfoDataType extends DynamicDataType {
 		if (struct == null) {
 			return null;
 		}
-		DataTypeComponent[] components = struct.getComponents();
-		if (struct.hasFlexibleArrayComponent()) {
-			DataTypeComponent[] newArray = new DataTypeComponent[components.length + 1];
-			System.arraycopy(components, 0, newArray, 0, components.length);
-			newArray[components.length] = struct.getFlexibleArrayComponent();
-			components = newArray;
-		}
-		return components;
+		return struct.getComponents();
 	}
 
 	private boolean hasExceptionHandler(int flags) {

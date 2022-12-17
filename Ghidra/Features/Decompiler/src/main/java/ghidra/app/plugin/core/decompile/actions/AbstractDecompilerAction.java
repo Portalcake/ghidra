@@ -17,7 +17,9 @@ package ghidra.app.plugin.core.decompile.actions;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
+import docking.action.KeyBindingType;
 import ghidra.app.decompiler.*;
+import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.plugin.core.decompile.DecompilePlugin;
 import ghidra.app.plugin.core.decompile.DecompilerActionContext;
 import ghidra.app.util.datatype.DataTypeSelectionDialog;
@@ -26,15 +28,17 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.pcode.*;
+import ghidra.program.model.symbol.*;
+import ghidra.util.UndefinedFunction;
 import ghidra.util.data.DataTypeParser.AllowedDataTypes;
 
 /**
- * A base class for {@link DecompilePlugin} actions that handles checking whether the 
- * decompiler is busy.   Each action is responsible for deciding its enablement via 
+ * A base class for {@link DecompilePlugin} actions that handles checking whether the
+ * decompiler is busy.   Each action is responsible for deciding its enablement via
  * {@link #isEnabledForDecompilerContext(DecompilerActionContext)}.  Each action must implement
  * {@link #decompilerActionPerformed(DecompilerActionContext)} to complete its work.
  * 
- * <p>This parent class uses the {@link DecompilerActionContext} to check for the decompiler's 
+ * <p>This parent class uses the {@link DecompilerActionContext} to check for the decompiler's
  * busy status.  If the decompiler is busy, then the action will report that it is enabled.  We
  * do this so that any keybindings registered for this action will get consumed and not passed up
  * to the global context.   Then, if the action is executed, this class does not call the child
@@ -44,6 +48,10 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 
 	AbstractDecompilerAction(String name) {
 		super(name, DecompilePlugin.class.getSimpleName());
+	}
+
+	AbstractDecompilerAction(String name, KeyBindingType kbType) {
+		super(name, DecompilePlugin.class.getSimpleName(), kbType);
 	}
 
 	@Override
@@ -139,11 +147,11 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 	}
 
 	/**
-	 * Get the structure associated with a field token
+	 * Get the structure/union associated with a field token
 	 * @param tok is the token representing a field
-	 * @return the structure which contains this field
+	 * @return the structure/union which contains this field
 	 */
-	public static Structure getStructDataType(ClangToken tok) {
+	public static Composite getCompositeDataType(ClangToken tok) {
 		// We already know tok is a ClangFieldToken
 		ClangFieldToken fieldtok = (ClangFieldToken) tok;
 		DataType dt = fieldtok.getDataType();
@@ -153,8 +161,8 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 		if (dt instanceof TypeDef) {
 			dt = ((TypeDef) dt).getBaseDataType();
 		}
-		if (dt instanceof Structure) {
-			return (Structure) dt;
+		if (dt instanceof Composite) {
+			return (Composite) dt;
 		}
 		return null;
 	}
@@ -194,13 +202,56 @@ public abstract class AbstractDecompilerAction extends DockingAction {
 		return false;
 	}
 
-	public DataType chooseDataType(PluginTool tool, Program program, DataType currentDataType) {
+	protected static DataType chooseDataType(PluginTool tool, Program program,
+			DataType currentDataType) {
 		DataTypeManager dataTypeManager = program.getDataTypeManager();
 		DataTypeSelectionDialog chooserDialog = new DataTypeSelectionDialog(tool, dataTypeManager,
 			Integer.MAX_VALUE, AllowedDataTypes.FIXED_LENGTH);
 		chooserDialog.setInitialDataType(currentDataType);
 		tool.showDialog(chooserDialog);
 		return chooserDialog.getUserChosenDataType();
+	}
+
+	protected Symbol getSymbol(DecompilerActionContext context) {
+
+		// prefer the decompiler's function reference over the program location's address
+		Function function = getFunction(context);
+		if (function != null && !(function instanceof UndefinedFunction)) {
+			return function.getSymbol();
+		}
+
+		Program program = context.getProgram();
+		SymbolTable symbolTable = program.getSymbolTable();
+		Address address = context.getAddress();
+		if (address == null) {
+			return null;
+		}
+		return symbolTable.getPrimarySymbol(address);
+	}
+
+	/**
+	 * Get the function corresponding to the specified decompiler context.
+	 * 
+	 * @param context decompiler action context
+	 * @return the function associated with the current context token or null if none identified.
+	 */
+	protected Function getFunction(DecompilerActionContext context) {
+		ClangToken token = context.getTokenAtCursor();
+
+		Function f = null;
+		if (token instanceof ClangFuncNameToken) {
+			f = DecompilerUtils.getFunction(context.getProgram(), (ClangFuncNameToken) token);
+		}
+		else {
+			HighSymbol highSymbol = findHighSymbolFromToken(token, context.getHighFunction());
+			if (highSymbol instanceof HighFunctionShellSymbol) {
+				f = (Function) highSymbol.getSymbol().getObject();
+			}
+		}
+		while (f != null && f.isThunk() && f.getSymbol().getSource() == SourceType.DEFAULT) {
+			f = f.getThunkedFunction(false);
+		}
+		return f;
 	}
 
 	/**

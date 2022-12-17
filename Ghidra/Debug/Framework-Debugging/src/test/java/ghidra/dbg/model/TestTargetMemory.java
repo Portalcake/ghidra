@@ -24,27 +24,32 @@ import java.util.concurrent.CompletableFuture;
 import ghidra.dbg.target.TargetAccessConditioned;
 import ghidra.dbg.target.TargetMemory;
 import ghidra.generic.util.datastruct.SemisparseByteArray;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.*;
 
 public class TestTargetMemory
 		extends DefaultTestTargetObject<TestTargetMemoryRegion, TestTargetProcess>
 		implements TargetMemory, TargetAccessConditioned {
 
 	protected final SemisparseByteArray memory = new SemisparseByteArray();
+	protected final AddressSpace space;
 
-	public TestTargetMemory(TestTargetProcess parent) {
+	public TestTargetMemory(TestTargetProcess parent, AddressSpace space) {
 		super(parent, "Memory", "Memory");
+		this.space = space;
 		changeAttributes(List.of(), Map.of(
 			ACCESSIBLE_ATTRIBUTE_NAME, true //
 		), "Initialized");
 	}
 
+	public void getMemory(Address address, byte[] data) {
+		assertEquals(space, address.getAddressSpace());
+		memory.getData(address.getOffset(), data);
+	}
+
 	@Override
 	public CompletableFuture<byte[]> readMemory(Address address, int length) {
-		assertEquals(getModel().ram, address.getAddressSpace());
 		byte[] data = new byte[length];
-		memory.getData(address.getOffset(), data);
+		getMemory(address, data);
 		CompletableFuture<byte[]> future = getModel().future(data);
 		future.thenAccept(__ -> {
 			listeners.fire.memoryUpdated(this, address, data);
@@ -53,7 +58,7 @@ public class TestTargetMemory
 	}
 
 	public void setMemory(Address address, byte[] data) {
-		assertEquals(getModel().ram, address.getAddressSpace());
+		assertEquals(space, address.getAddressSpace());
 		memory.putData(address.getOffset(), data);
 	}
 
@@ -68,9 +73,15 @@ public class TestTargetMemory
 	}
 
 	public TestTargetMemoryRegion addRegion(String name, AddressRange range, String flags) {
-		TestTargetMemoryRegion region = new TestTargetMemoryRegion(this, name, range, flags);
+		TestTargetMemoryRegion region =
+			getModel().newTestTargetMemoryRegion(this, name, range, flags);
 		changeElements(List.of(), List.of(region), "Add test region: " + range);
 		return region;
+	}
+
+	public void removeRegion(TestTargetMemoryRegion region) {
+		changeElements(List.of(region.getIndex()), List.of(),
+			"Remove test region: " + region.getRange());
 	}
 
 	public boolean setAccessible(boolean accessible) {

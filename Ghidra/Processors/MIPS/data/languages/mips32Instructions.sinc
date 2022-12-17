@@ -205,21 +205,15 @@ define pcodeop special2;
     # Extract Bit Field
     # RT = extractField(RSsrc, msbd:1, lsb:1);
     # Note that msbd = size - 1
-@if REGSIZE == "4"
-    rs_tmp:4 = RSsrc << (32 - (msbd + lsb + 1));
-    rs_tmp = rs_tmp >> (32 - (msbd + 1));
+    rs_tmp:$(REGSIZE) = RSsrc << ($(REGSIZE) * 8 - (msbd + lsb + 1));
+    rs_tmp = rs_tmp >> ($(REGSIZE) * 8 - (msbd + 1));
     RT = zext(rs_tmp);
-@else
-    rs_tmp:8 = RSsrc << (64 - (msbd + lsb + 1));
-    rs_tmp = rs_tmp >> (64 - (msbd + 1));
-    RT = zext(rs_tmp);
-@endif
 }
 
 # 0111 11ss ssst tttt mmmm mLLL LL00 0100
 :ins RT, RSsrc, lsb, InsSize    is $(AMODE) & prime=0x1F & fct=0x04 & RT & RTsrc & RSsrc & lsb & msbd & InsSize {
     tmpa:$(REGSIZE) = -1;
-    tmpa = tmpa >> ($(REGSIZE) - InsSize);
+    tmpa = tmpa >> ($(REGSIZE) * 8 - InsSize);
     tmpb:$(REGSIZE) = RSsrc & tmpa;
     tmpa = tmpa << lsb;
     tmpa = ~tmpa;
@@ -535,8 +529,13 @@ define pcodeop special2;
 }        
 
 # 0111 1100 000t tttt dddd d000 0011 1011
-:rdhwr RT, RDsrc                is $(AMODE) & prime=0x1F & rs=0 & fct2=0 & fct=0x3B & RT & RDsrc {
-    RT = getHWRegister(RDsrc);
+:rdhwr RT, rd_hw                is $(AMODE) & prime=0x1F & rs=0 & fct2=0 & fct=0x3B & RT & rd_hw & rd!=4 {
+    RT = getHWRegister(rd_hw);
+}
+
+# 0111 1100 000t tttt dddd d000 0011 1011
+:rdhwr RT, rd_hw, sel_0608      is $(AMODE) & REL6=1 & prime=0x1F & rs=0 & spec2=0 & fct=0x3B & RT & rd_hw & rd=4 & sel_0608 {
+    RT = getHWRegister(rd_hw, sel_0608:1);
 }
 
 # 0100 0001 010t tttt dddd d000 0000 0000 
@@ -761,7 +760,7 @@ define pcodeop SYNC;
     EntryHi = TLB_read_indexed_entryHi(Index);
     EntryLo0 = TLB_read_indexed_entryLo0(Index);
     EntryLo1 = TLB_read_indexed_entryLo1(Index);
-    PageMask = TLB_read_indexed_entryLo1(Index);
+    PageMask = TLB_read_indexed_entryPageMask(Index);
 }
 
 :tlbwi		is $(AMODE) & prime=0x10  & bit25=1 & copfill=0x00 & fct=0x02 {
@@ -1644,7 +1643,13 @@ define pcodeop SYNC;
 	build RTsrc;
 	tmp:$(REGSIZE) = sext(simmed:2) + RTsrc;	
 	JXWritePC(tmp); 
-    call [pc];
+    goto [pc];
+}
+
+:jic RTsrc, simmed                                      is $(AMODE) & REL6=1 & prime=0x36 & jsub=0x00 & RTsrc & simmed & immed=0x00 & rt=0x1f {
+        build RTsrc;
+        JXWritePC(ra);
+	return [pc];
 }
 
 @ifndef COPR_C

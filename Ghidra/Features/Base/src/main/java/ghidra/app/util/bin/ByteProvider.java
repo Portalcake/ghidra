@@ -26,6 +26,11 @@ import ghidra.formats.gfilesystem.FileSystemService;
 public interface ByteProvider extends Closeable {
 
 	/**
+	 * A static re-usable empty {@link ByteProvider} instance. 
+	 */
+	public static final ByteProvider EMPTY_BYTEPROVIDER = new EmptyByteProvider();
+
+	/**
 	 * Returns the {@link FSRL} of the underlying file for this byte provider,
 	 * or null if this byte provider is not associated with a file.
 	 * 
@@ -70,6 +75,20 @@ public interface ByteProvider extends Closeable {
 	public long length() throws IOException;
 
 	/**
+	 * Returns true if this ByteProvider does not contain any bytes.
+	 * 
+	 * @return boolean true if this provider is empty, false if contains bytes
+	 */
+	default public boolean isEmpty() {
+		try {
+			return length() == 0;
+		}
+		catch (IOException e) {
+			return true;
+		}
+	}
+
+	/**
 	 * Returns true if the specified index is valid.
 	 * 
 	 * @param index the index in the byte provider to check
@@ -109,9 +128,18 @@ public interface ByteProvider extends Closeable {
 	 * <p>
 	 * The caller is responsible for closing the returned {@link InputStream} instance.
 	 * <p>
+	 * If you need to override this default implementation, please document why your inputstream
+	 * is needed.
+	 * 
 	 * @param index where in the {@link ByteProvider} to start the {@link InputStream}
 	 * @return the {@link InputStream}
 	 * @throws IOException  if an I/O error occurs
 	 */
-	public InputStream getInputStream(long index) throws IOException;
+	default public InputStream getInputStream(long index) throws IOException {
+		if (index < 0 || index > length()) {
+			throw new IOException("Invalid start position: " + index);
+		}
+		return new ByteProviderInputStream(this, index);
+	}
+
 }

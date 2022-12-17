@@ -18,6 +18,7 @@ package ghidra.app.plugin.core.label;
 import static org.junit.Assert.*;
 
 import java.awt.Component;
+import java.awt.Window;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -477,7 +478,6 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		assertNotNull(getUniqueSymbol(program, "zzzz", null));
 		assertNotNull(getUniqueSymbol(program, "cccc", null));
 		assertNull(getUniqueSymbol(program, "bbbb", null));
-
 	}
 
 	@Test
@@ -502,7 +502,44 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		s = getUniqueSymbol(program, "foo", st.getNamespace(a));
 		assertNotNull(s);
 		assertEquals("entry", s.getParentNamespace().getName());
+	}
 
+	@Test
+	public void testEdit_CannotRemoveDefaultLabel() {
+
+		Address refAddr = addr(0x10064b1);
+		Symbol s = st.getPrimarySymbol(refAddr);
+		editLabel(s);
+		assertEquals("LAB_010064b1", getText());
+
+		setText("");
+
+		pressOk();
+
+		assertStatusText("Name cannot be blank");
+	}
+
+	@Test
+	public void testEdit_RemoveNonDefaultLabel() {
+
+		Address a = addr(0x100642a);
+		addLabel(a);
+		String labelName = "aaaa";
+		setText(labelName);
+		pressOk();
+
+		Symbol s = st.getPrimarySymbol(a);
+		editLabel(s);
+		assertEquals(labelName, getText());
+
+		setText("");
+		pressOk();
+
+		Window w = waitForWindow("Remove Label?");
+		pressButtonByText(w, "Yes");
+		assertEditDialogVisible(false);
+
+		assertNull(getUniqueSymbol(program, labelName, null));
 	}
 
 	@Test
@@ -583,7 +620,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		setText("label_1");
 		pressOk();
 
-		assertTrue("Encountered a problem adding a label to the Global " + "namespace",
+		assertTrue("Encountered a problem adding a label to the Global namespace",
 			!dialog.isVisible());
 
 		// move the label to a new namespace
@@ -594,7 +631,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 
 		// make sure there were no problems
 		assertTrue(
-			"Encountered a problem changing a symbol's namespace " + "while editing the symbol",
+			"Encountered a problem changing a symbol's namespace while editing the symbol",
 			!dialog.isVisible());
 
 		// now move that label to the Global namespace
@@ -695,7 +732,7 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 	@Test
 	public void testSetNamespace_NonExistentNamespace_SameNameAsFunction() throws Exception {
 
-		// 
+		//
 		// Test that we can create a new namespace using the dialog when:
 		// 1) that namespace does not exist
 		// 2) the namespace matches the existing function name
@@ -717,9 +754,46 @@ public class AddEditDialoglTest extends AbstractGhidraHeadedIntegrationTest {
 		assertEquals(nsName, parentNs.getName());
 	}
 
+	@Test
+	public void testSetNamespace_NamespaceWithoutFunctionName() throws Exception {
+
+		//
+		// Test that we can cannot create a new namespace and clear a symbol name using this form:
+		// "Namespace::"
+		//
+		// A blank name is a signal to reset to a default name, but we do not currently support
+		// changing a namespace and resetting the name in the same operation.
+		//
+
+		String functionName = "FUN_010065f0";
+		Symbol functionSymbol = getSymbol(functionName);
+		Namespace originalNamespace = functionSymbol.getParentNamespace();
+		editLabel(functionSymbol);
+		String nsName = "NewNamespace";
+		setText(nsName + Namespace.DELIMITER);
+		pressOk();
+		assertTrue("Rename unsuccesful", dialog.isShowing());
+		assertStatusText("Name cannot be blank while changing namespace");
+
+		Symbol newFunction = functionSymbol;
+		Namespace parentNs = newFunction.getParentNamespace();
+		assertSame(originalNamespace, parentNs);
+	}
+
 //==================================================================================================
 // Private Methods
 //==================================================================================================
+
+	private void assertStatusText(String expected) {
+		assertEquals("Dialog status text not as expected", expected,
+			runSwing(dialog::getStatusText));
+	}
+
+	private void assertEditDialogVisible(boolean visible) {
+		assertEquals("Dialog " + (visible ? "not showing" : "showing") +
+			"when it should be " + (visible ? "showing" : "not showing"), visible,
+			runSwing(dialog::isShowing));
+	}
 
 	private Symbol createOtherEntry(Address otherAddress) {
 		Symbol dupEntry = st.getPrimarySymbol(otherAddress);

@@ -26,8 +26,7 @@ import ghidra.async.AsyncUtils;
 import ghidra.dbg.target.*;
 import ghidra.dbg.target.TargetExecutionStateful.TargetExecutionState;
 import ghidra.dbg.util.PathUtils;
-import ghidra.program.model.address.Address;
-import ghidra.program.model.address.AddressRange;
+import ghidra.program.model.address.*;
 import ghidra.program.model.data.Pointer;
 import ghidra.program.model.lang.*;
 import ghidra.trace.model.Trace;
@@ -61,7 +60,7 @@ public class DefaultThreadRecorder implements ManagedThreadRecorder {
 	private final TraceMemoryManager memoryManager;
 
 	private DebuggerRegisterMapper regMapper;
-	private final AbstractDebuggerTargetTraceMapper mapper;
+	private final DefaultDebuggerTargetTraceMapper mapper;
 
 	private final DefaultStackRecorder stackRecorder;
 	private final DefaultBreakpointRecorder breakpointRecorder;
@@ -72,7 +71,7 @@ public class DefaultThreadRecorder implements ManagedThreadRecorder {
 	}
 
 	public DefaultThreadRecorder(DefaultTraceRecorder recorder,
-			AbstractDebuggerTargetTraceMapper mapper, TargetThread targetThread,
+			DefaultDebuggerTargetTraceMapper mapper, TargetThread targetThread,
 			TraceThread traceThread) {
 		this.recorder = recorder;
 		this.mapper = mapper;
@@ -267,11 +266,11 @@ public class DefaultThreadRecorder implements ManagedThreadRecorder {
 		TimedMsg.debug(this, "Reg values changed: " + updates.keySet());
 		recorder.parTx.execute("Registers " + path + " changed", () -> {
 			TraceCodeManager codeManager = trace.getCodeManager();
-			TraceCodeRegisterSpace codeRegisterSpace =
+			TraceCodeSpace codeRegisterSpace =
 				codeManager.getCodeRegisterSpace(traceThread, false);
-			TraceDefinedDataRegisterView definedData =
+			TraceDefinedDataView definedData =
 				codeRegisterSpace == null ? null : codeRegisterSpace.definedData();
-			TraceMemoryRegisterSpace regSpace =
+			TraceMemorySpace regSpace =
 				memoryManager.getMemoryRegisterSpace(traceThread, frameLevel, true);
 			for (Entry<String, byte[]> ent : updates.entrySet()) {
 				RegisterValue rv = regMapper.targetToTrace(ent.getKey(), ent.getValue());
@@ -305,11 +304,11 @@ public class DefaultThreadRecorder implements ManagedThreadRecorder {
 		//TimedMsg.info(this, "Register value changed: " + targetRegister);
 		recorder.parTx.execute("Register " + path + " changed", () -> {
 			TraceCodeManager codeManager = trace.getCodeManager();
-			TraceCodeRegisterSpace codeRegisterSpace =
+			TraceCodeSpace codeRegisterSpace =
 				codeManager.getCodeRegisterSpace(traceThread, false);
-			TraceDefinedDataRegisterView definedData =
+			TraceDefinedDataView definedData =
 				codeRegisterSpace == null ? null : codeRegisterSpace.definedData();
-			TraceMemoryRegisterSpace regSpace =
+			TraceMemorySpace regSpace =
 				memoryManager.getMemoryRegisterSpace(traceThread, frameLevel, true);
 			String key = targetRegister.getName();
 			if (PathUtils.isIndex(key)) {
@@ -329,6 +328,24 @@ public class DefaultThreadRecorder implements ManagedThreadRecorder {
 				}
 			}
 		}, getTargetThread().getJoinedPath("."));
+	}
+
+	@Override
+	public void invalidateRegisterValues(TargetRegisterBank bank) {
+		int frameLevel = stackRecorder.getSuccessorFrameLevel(bank);
+		long snap = recorder.getSnap();
+		String path = bank.getJoinedPath(".");
+
+		recorder.parTx.execute("Registers invalidated: " + path, () -> {
+			TraceMemorySpace regSpace =
+				memoryManager.getMemoryRegisterSpace(traceThread, frameLevel, false);
+			if (regSpace == null) {
+				return;
+			}
+			AddressSpace as = regSpace.getAddressSpace();
+			regSpace.setState(snap, as.getMinAddress(), as.getMaxAddress(),
+				TraceMemoryState.UNKNOWN);
+		}, path);
 	}
 
 	public CompletableFuture<Void> writeThreadRegisters(int frameLevel,

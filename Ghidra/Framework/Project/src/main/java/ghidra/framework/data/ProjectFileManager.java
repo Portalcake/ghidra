@@ -24,16 +24,15 @@ import ghidra.framework.client.*;
 import ghidra.framework.model.*;
 import ghidra.framework.protocol.ghidra.GhidraURL;
 import ghidra.framework.remote.User;
+import ghidra.framework.store.*;
 import ghidra.framework.store.FileSystem;
-import ghidra.framework.store.FileSystemListener;
-import ghidra.framework.store.FolderItem;
 import ghidra.framework.store.local.LocalFileSystem;
+import ghidra.framework.store.local.LocalFolderItem;
 import ghidra.framework.store.remote.RemoteFileSystem;
 import ghidra.util.*;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.DuplicateFileException;
-import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
+import ghidra.util.task.*;
 import utilities.util.FileUtilities;
 
 /**
@@ -143,9 +142,6 @@ public class ProjectFileManager implements ProjectData {
 		}
 	}
 
-	/**
-	 * Constructor used for testing
-	 */
 	ProjectFileManager(LocalFileSystem fileSystem, FileSystem versionedFileSystem) {
 		this.localStorageLocator = new ProjectLocator(null, "Test");
 		owner = SystemUtilities.getUserName();
@@ -208,9 +204,6 @@ public class ProjectFileManager implements ProjectData {
 		fileSystem.testValidName(name, isPath);
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getUser()
-	 */
 	@Override
 	public User getUser() {
 		if (repository != null) {
@@ -386,19 +379,13 @@ public class ProjectFileManager implements ProjectData {
 		return owner;
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getRootFolder()
-	 */
 	@Override
 	public GhidraFolder getRootFolder() {
 		return rootFolderData.getDomainFolder();
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getFolder(java.lang.String)
-	 */
 	@Override
-	public DomainFolder getFolder(String path) {
+	public GhidraFolder getFolder(String path) {
 		int len = path.length();
 		if (len == 0 || path.charAt(0) != FileSystem.SEPARATOR_CHAR) {
 			throw new IllegalArgumentException(
@@ -429,9 +416,8 @@ public class ProjectFileManager implements ProjectData {
 			}
 		}
 
-		// NOTE: we can't distinguish between files represented
-		// in both file counts so we will return the larger of
-		// the two counts obtained.
+		// NOTE: we can't distinguish between files represented in both file counts so we will 
+		// return the larger of the two counts obtained.
 
 		int privateFileCnt = -1;
 		try {
@@ -452,9 +438,6 @@ public class ProjectFileManager implements ProjectData {
 		return Math.max(sharedFileCnt, privateFileCnt);
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getFile(java.lang.String)
-	 */
 	@Override
 	public DomainFile getFile(String path) {
 		int len = path.length();
@@ -480,17 +463,11 @@ public class ProjectFileManager implements ProjectData {
 		return null;
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getFileByID(java.lang.String)
-	 */
 	@Override
 	public DomainFile getFileByID(String fileID) {
 		return fileIndex.getFileByID(fileID);
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getSharedFileURL(java.lang.String)
-	 */
 	@Override
 	public URL getSharedFileURL(String path) {
 		if (repository != null) {
@@ -504,10 +481,6 @@ public class ProjectFileManager implements ProjectData {
 		return null;
 	}
 
-	/**
-	 * Releases all domain files for the specified consumer.
-	 * @param consumer the domain object consumer
-	 */
 	public void releaseDomainFiles(Object consumer) {
 		for (DomainObjectAdapter domainObj : openDomainObjects.values()) {
 			try {
@@ -522,8 +495,7 @@ public class ProjectFileManager implements ProjectData {
 	}
 
 	/**
-	 * Finds all changed domain files and appends
-	 * them to the specified list.
+	 * Finds all changed domain files and appends them to the specified list.
 	 * @param list the list to receive the changed domain files
 	 */
 	@Override
@@ -533,52 +505,30 @@ public class ProjectFileManager implements ProjectData {
 		}
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#getProjectLocator()
-	 */
 	@Override
 	public ProjectLocator getProjectLocator() {
 		return localStorageLocator;
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#addDomainFolderChangeListener(
-	 * 											ghidra.framework.model.DomainFolderChangeListener)
-	 */
 	@Override
 	public void addDomainFolderChangeListener(DomainFolderChangeListener l) {
 		listenerList.addListener(l);
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#removeDomainFolderChangeListener(
-	 * 											ghidra.framework.model.DomainFolderChangeListener)
-	 */
 	@Override
 	public void removeDomainFolderChangeListener(DomainFolderChangeListener l) {
 		listenerList.removeListener(l);
 	}
 
-	/**
-	 * Returns the private files system associated with this project file manager.
-	 * @return the private files system associated with this project file manager
-	 */
 	public FileSystem getPrivateFileSystem() {
 		return fileSystem;
 	}
 
-	/**
-	 * Returns the repository associated with this project file manager.
-	 * @return the repository associated with this project file manager
-	 */
 	@Override
 	public RepositoryAdapter getRepository() {
 		return repository;
 	}
 
-	/**
-	 * @see ghidra.framework.model.ProjectData#refresh(boolean)
-	 */
 	@Override
 	public void refresh(boolean force) throws IOException {
 		try {
@@ -589,12 +539,6 @@ public class ProjectFileManager implements ProjectData {
 		}
 	}
 
-	/*
-	 *  (non-Javadoc)
-	 * @see ghidra.framework.model.ProjectData#convertProjectToShared(
-	 * 											ghidra.framework.client.RepositoryAdapter, 
-	 * 											ghidra.util.task.TaskMonitor)
-	 */
 	@Override
 	public void convertProjectToShared(RepositoryAdapter newRepository, TaskMonitor monitor)
 			throws IOException, CancelledException {
@@ -607,7 +551,7 @@ public class ProjectFileManager implements ProjectData {
 			throw new IllegalStateException("Only private project may be converted to shared");
 		}
 
-		// 1) Convert versioned files (inclulding checked-out files) to private files
+		// 1) Convert versioned files (including checked-out files) to private files
 		convertFilesToPrivate(getRootFolder(), monitor);
 
 		// 2) Update the properties with server info
@@ -621,40 +565,159 @@ public class ProjectFileManager implements ProjectData {
 		FileUtilities.deleteDir(versionedFileSystemDir);
 	}
 
-	/*
-	 *  (non-Javadoc)
-	 * @see ghidra.framework.model.ProjectData#updateRepositoryInfo(
-	 * 											ghidra.framework.client.RepositoryAdapter, 
-	 * 											ghidra.util.task.TaskMonitor)
-	 */
 	@Override
-	public void updateRepositoryInfo(RepositoryAdapter newRepository, TaskMonitor monitor)
+	public void updateRepositoryInfo(RepositoryAdapter newRepository, boolean force,
+			TaskMonitor monitor)
 			throws IOException, CancelledException {
-		// 1) check for checked out files
-		findCheckedOutFiles(getRootFolder(), monitor);
+		
+		newRepository.connect();
+		if (!newRepository.isConnected()) {
+			throw new IOException("new respository not connected");
+		}
 
-		// 2) Update the properties with server info
+		// Terminate any local checkouts which are not valid with newRepository
+		List<DomainFile> checkoutFiles = findCheckedOutFiles(monitor);
+		List<DomainFile> invalidCheckoutFiles =
+			findInvalidCheckouts(checkoutFiles, newRepository, monitor);
+		undoCheckouts(invalidCheckoutFiles, true, force, monitor);
+
+		// Update the properties with server info
 		updatePropertiesFile(newRepository);
 	}
 
-	private void findCheckedOutFiles(DomainFolder folder, TaskMonitor monitor)
-			throws IOException, CancelledException {
-
-		DomainFile[] files = folder.getFiles();
-		for (int i = 0; i < files.length; i++) {
-			if (monitor.isCancelled()) {
-				throw new CancelledException();
+	private boolean hasInvalidCheckout(DomainFile df, RepositoryAdapter newRepository)
+			throws IOException {
+		try {
+			LocalFolderItem item = fileSystem.getItem(df.getParent().getPathname(), df.getName());
+			if (item == null) {
+				return false;
 			}
-			if (files[i].isCheckedOut()) {
-				throw new IOException("File " + files[i].getPathname() + " is checked out.");
+
+			// TODO: this is not bulletproof since we have limited data to validate checkout.
+			long checkoutId = item.getCheckoutId();
+			int checkoutVersion = item.getCheckoutVersion();
+
+			ItemCheckoutStatus otherCheckoutStatus = newRepository.getCheckout(
+				df.getParent().getPathname(), df.getName(), checkoutId);
+
+			if (!newRepository.getUser().getName().equals(otherCheckoutStatus.getUser())) {
+				return true;
+			}
+			if (checkoutVersion != otherCheckoutStatus.getCheckoutVersion()) {
+				return true;
 			}
 		}
-		DomainFolder[] folders = folder.getFolders();
-		for (int i = 0; i < folders.length; i++) {
-			if (monitor.isCancelled()) {
-				throw new CancelledException();
+		catch (FileNotFoundException e) {
+			return true;
+		}
+		catch (NotConnectedException e) {
+			throw e;
+		}
+		catch (IOException e) {
+			// skip file
+		}
+		return false;
+	}
+
+	/**
+	 * Determine if any domain files listed does not correspond to a checkout in the specified 
+	 * newRespository.
+	 * @param checkoutList project domain files to check
+	 * @param newRepository repository to check against before updating
+	 * @param monitor task monitor
+	 * @return true if one or more files are not valid checkouts in newRepository
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task cancelled
+	 */
+	public boolean hasInvalidCheckouts(List<DomainFile> checkoutList,
+			RepositoryAdapter newRepository, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		for (DomainFile df : checkoutList) {
+			monitor.checkCanceled();
+			if (hasInvalidCheckout(df, newRepository)) {
+				return true;
 			}
-			findCheckedOutFiles(folders[i], monitor);
+		}
+		return false;
+	}
+
+	/**
+	 * Find those domain files listed which do not correspond to checkouts in the specified 
+	 * newRespository.
+	 * @param checkoutList project domain files to check
+	 * @param newRepository repository to check against before updating
+	 * @param monitor task monitor
+	 * @return list of domain files not checked-out in repo
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task cancelled
+	 */
+	private List<DomainFile> findInvalidCheckouts(List<DomainFile> checkoutList,
+			RepositoryAdapter newRepository, TaskMonitor monitor)
+			throws IOException, CancelledException {
+		List<DomainFile> list = new ArrayList<>();
+		for (DomainFile df : checkoutList) {
+			monitor.checkCanceled();
+			if (hasInvalidCheckout(df, newRepository)) {
+				list.add(df);
+			}
+		}
+		return list;
+	}
+
+	/**
+	 * Undo checkouts for all domain files listed.
+	 * @param files list of files to undo checkout
+	 * @param keep if a .keep copy of any checked-out file should be retained in the local file.
+	 * @param force if not connected to the repository the local checkout file will be removed.
+	 *    Warning: forcing undo checkout will leave a stale checkout in place for the associated 
+	 *    repository if not connected.
+	 * @param monitor task monitor
+	 * @throws IOException if an IO error occurs
+	 * @throws CancelledException if task cancelled
+	 */
+	private void undoCheckouts(List<DomainFile> files, boolean keep, boolean force,
+			TaskMonitor monitor) throws IOException, CancelledException {
+		for (DomainFile df : files) {
+			monitor.checkCanceled();
+			if (df.isCheckedOut()) {
+				df.undoCheckout(keep, force);
+			}
+		}
+	}
+
+	/**
+	 * Find all project files which are currently checked-out
+	 * @param monitor task monitor (no progress updates)
+	 * @return list of current checkout files
+	 * @throws IOException if IO error occurs
+	 * @throws CancelledException if task cancelled
+	 */
+	public List<DomainFile> findCheckedOutFiles(TaskMonitor monitor)
+			throws IOException, CancelledException {
+		List<DomainFile> list = new ArrayList<>();
+		findCheckedOutFiles("/", list, monitor);
+		return list;
+	}
+
+	private void findCheckedOutFiles(String folderPath, List<DomainFile> checkoutList,
+			TaskMonitor monitor)
+			throws IOException, CancelledException {
+
+		for (String name : fileSystem.getItemNames(folderPath)) {
+			monitor.checkCanceled();
+			LocalFolderItem item = fileSystem.getItem(folderPath, name);
+			if (item.getCheckoutId() != FolderItem.DEFAULT_CHECKOUT_ID) {
+				checkoutList.add(new GhidraFile(getFolder(folderPath), name));
+			}
+		}
+
+		if (!folderPath.endsWith(FileSystem.SEPARATOR)) {
+			folderPath += FileSystem.SEPARATOR;
+		}
+
+		for (String subfolder : fileSystem.getFolderNames(folderPath)) {
+			monitor.checkCanceled();
+			findCheckedOutFiles(folderPath + subfolder, checkoutList, monitor);
 		}
 	}
 
@@ -662,12 +725,12 @@ public class ProjectFileManager implements ProjectData {
 			throws IOException, CancelledException {
 
 		DomainFile[] files = folder.getFiles();
-		for (int i = 0; i < files.length; i++) {
-			((GhidraFile) files[i]).convertToPrivateFile(monitor);
+		for (DomainFile file : files) {
+			((GhidraFile) file).convertToPrivateFile(monitor);
 		}
 		DomainFolder[] folders = folder.getFolders();
-		for (int i = 0; i < folders.length; i++) {
-			convertFilesToPrivate(folders[i], monitor);
+		for (DomainFolder folder2 : folders) {
+			convertFilesToPrivate(folder2, monitor);
 		}
 	}
 
@@ -902,12 +965,32 @@ public class ProjectFileManager implements ProjectData {
 
 		@Override
 		public void syncronize() {
+
+			if (SystemUtilities.isInHeadlessMode()) {
+				doSynchronize();
+				return;
+			}
+
+			try {
+
+				FileSystemSynchronizer.setSynchronizing(true);
+
+				// This operation can hold a lock for a long period.  Block with a modal dialog to
+				// prevent UI live lock situations.
+				TaskLauncher.launchModal("Synchronizing Filesystem", this::doSynchronize);
+			}
+			finally {
+				FileSystemSynchronizer.setSynchronizing(false);
+			}
+		}
+
+		private void doSynchronize() {
 			try {
 				rootFolderData.refresh(true, true, projectDisposalMonitor);
 				scheduleUserDataReconcilation();
 			}
 			catch (Exception e) {
-				// ignore
+				Msg.trace(this, "Exception synchronizing filesystem", e);
 			}
 		}
 	}
@@ -929,9 +1012,6 @@ public class ProjectFileManager implements ProjectData {
 		return buf.length() == 0 ? "unknown" : buf.toString();
 	}
 
-	/**
-	 * Return the project directory.
-	 */
 	public File getProjectDir() {
 		return projectDir;
 	}
@@ -941,9 +1021,6 @@ public class ProjectFileManager implements ProjectData {
 		dispose();
 	}
 
-	/**
-	 * Disposes this project file manager.
-	 */
 	public void dispose() {
 
 		synchronized (this) {
@@ -978,12 +1055,11 @@ public class ProjectFileManager implements ProjectData {
 
 	/**
 	 * Set the open domain object (opened for update) associated with a file. 
-	 * NOTE: Caller is responsible for setting domain file on domain object after
-	 * invoking this method.
-	 * If a domain object saveAs was done, the previous file association 
+	 * NOTE: Caller is responsible for setting domain file on domain object after invoking this 
+	 * method. If a domain object saveAs was done, the previous file association 
 	 * will be removed.
-	 * @param pathname
-	 * @param doa
+	 * @param pathname the path name
+	 * @param doa the domain object
 	 */
 	synchronized void setDomainObject(String pathname, DomainObjectAdapter doa) {
 		if (openDomainObjects.containsKey(pathname)) {
@@ -998,7 +1074,8 @@ public class ProjectFileManager implements ProjectData {
 
 	/**
 	 * Returns the open domain object (opened for update) for the specified path.
-	 * @param pathname
+	 * @param pathname the path name
+	 * @return the domain object
 	 */
 	synchronized DomainObjectAdapter getOpenedDomainObject(String pathname) {
 		return openDomainObjects.get(pathname);
@@ -1006,7 +1083,7 @@ public class ProjectFileManager implements ProjectData {
 
 	/**
 	 * Clears the previously open domain object which has been closed.
-	 * @param pathname
+	 * @param pathname the path name
 	 * @return true if previously open domain file was cleared, else false
 	 */
 	synchronized boolean clearDomainObject(String pathname) {
@@ -1028,7 +1105,7 @@ public class ProjectFileManager implements ProjectData {
 
 	/**
 	 * Remove specified fileID from index.
-	 * @param fileID
+	 * @param fileID the file ID
 	 */
 	public void removeFromIndex(String fileID) {
 		fileIndex.removeFileEntry(fileID);
@@ -1041,5 +1118,4 @@ public class ProjectFileManager implements ProjectData {
 	public TaskMonitor getProjectDisposalMonitor() {
 		return projectDisposalMonitor;
 	}
-
 }

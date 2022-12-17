@@ -26,6 +26,8 @@ import java.util.Map.Entry;
 import javax.swing.SwingUtilities;
 import javax.swing.tree.TreePath;
 
+import org.apache.commons.lang3.StringUtils;
+
 import docking.ActionContext;
 import docking.Tool;
 import docking.action.*;
@@ -36,7 +38,9 @@ import generic.util.Path;
 import ghidra.app.CorePluginPackage;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.plugin.ProgramPlugin;
-import ghidra.app.plugin.core.datamgr.actions.*;
+import ghidra.app.plugin.core.datamgr.actions.RecentlyOpenedArchiveAction;
+import ghidra.app.plugin.core.datamgr.actions.UpdateSourceArchiveNamesAction;
+import ghidra.app.plugin.core.datamgr.actions.associate.*;
 import ghidra.app.plugin.core.datamgr.archive.*;
 import ghidra.app.plugin.core.datamgr.editor.DataTypeEditorManager;
 import ghidra.app.plugin.core.datamgr.tree.ArchiveNode;
@@ -58,8 +62,7 @@ import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.DataTypeArchive;
 import ghidra.program.model.listing.Program;
-import ghidra.util.HelpLocation;
-import ghidra.util.Msg;
+import ghidra.util.*;
 import ghidra.util.datastruct.LRUMap;
 import ghidra.util.task.TaskLauncher;
 
@@ -102,7 +105,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	private DataTypePropertyManager dataTypePropertyManager;
 
 	public DataTypeManagerPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 	}
 
 	@Override
@@ -360,7 +363,12 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	}
 
 	public DataTypesProvider createProvider() {
-		return new DataTypesProvider(this, SEACH_PROVIDER_NAME);
+
+		DataTypesProvider newProvider = new DataTypesProvider(this, SEACH_PROVIDER_NAME);
+		newProvider.setIncludeDataTypeMembersInFilter(provider.includeDataMembersInSearch());
+		newProvider.setFilteringArrays(provider.isFilteringArrays());
+		newProvider.setFilteringPointers(provider.isFilteringPointers());
+		return newProvider;
 	}
 
 	public void closeProvider(DataTypesProvider providerToClose) {
@@ -525,8 +533,13 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	@Override
 	public DataType getDataType(String filterText) {
 		DataTypeChooserDialog dialog = new DataTypeChooserDialog(this);
-		dialog.setFilterText(filterText);
-		tool.showDialog(dialog);
+		if (!StringUtils.isBlank(filterText)) {
+			dialog.showPrepopulatedDialog(tool, filterText);
+		}
+		else {
+			tool.showDialog(dialog);
+		}
+
 		return dialog.getSelectedDataType();
 	}
 
@@ -556,6 +569,10 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	public DataTypeManager openDataTypeArchive(String archiveName)
 			throws IOException, DuplicateIdException {
 		return dataTypeManagerHandler.openArchive(archiveName);
+	}
+
+	public List<Archive> getAllArchives() {
+		return dataTypeManagerHandler.getAllArchives();
 	}
 
 	public void openProjectDataTypeArchive() {
@@ -601,17 +618,23 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 	@Override
 	public void setDataTypeSelected(DataType dataType) {
 		if (provider.isVisible()) {
-			provider.setDataTypeSelected(dataType);
+			// this is a service method, ensure it is on the Swing thread, since it interacts with
+			// Swing components
+			Swing.runIfSwingOrRunLater(() -> provider.setDataTypeSelected(dataType));
 		}
+	}
+
+	@Override
+	public List<DataType> getSelectedDatatypes() {
+		if (provider.isVisible()) {
+			return provider.getSelectedDataTypes();
+		}
+		return Collections.emptyList();
 	}
 
 	@Override
 	public void setRecentlyUsed(DataType dt) {
 		dataTypeManagerHandler.setRecentlyUsedDataType(dt);
-	}
-
-	public boolean includeDataMembersInSearch() {
-		return provider.includeDataMembersInSearch();
 	}
 
 	@Override
@@ -709,7 +732,7 @@ public class DataTypeManagerPlugin extends ProgramPlugin
 			return null;
 		}
 		DataTypesActionContext dtContext = (DataTypesActionContext) context;
-		GTreeNode selectedNode = dtContext.getSelectedNode();
+		GTreeNode selectedNode = dtContext.getClickedNode();
 		if (!(selectedNode instanceof ArchiveNode)) {
 			return null;
 		}

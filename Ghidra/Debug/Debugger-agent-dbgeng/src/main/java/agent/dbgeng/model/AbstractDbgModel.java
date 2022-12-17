@@ -42,4 +42,8 @@ public abstract class AbstractDbgModel extends AbstractDebuggerObjectModel {
 
 	public abstract TargetObject getModelObject(Object object);
 
+	public abstract void deleteModelObject(Object object);
+
+	public abstract boolean isSuppressDescent();
+
 }

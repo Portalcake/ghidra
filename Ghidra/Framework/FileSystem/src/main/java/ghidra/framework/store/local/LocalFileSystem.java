@@ -74,7 +74,7 @@ public abstract class LocalFileSystem implements FileSystem {
 	protected final File root;
 	protected final boolean isVersioned;
 	protected final boolean readOnly;
-	protected final FileSystemListenerList listeners;
+	protected final FileSystemEventManager eventManager;
 
 	private RepositoryLogger repositoryLogger;
 
@@ -187,7 +187,7 @@ public abstract class LocalFileSystem implements FileSystem {
 
 		this.isVersioned = isVersioned;
 		this.readOnly = readOnly;
-		listeners = new FileSystemListenerList(enableAsyncronousDispatching);
+		eventManager = new FileSystemEventManager(enableAsyncronousDispatching);
 
 	}
 
@@ -205,7 +205,7 @@ public abstract class LocalFileSystem implements FileSystem {
 		this.root = null;
 		this.isVersioned = false;
 		this.readOnly = true;
-		listeners = null;
+		eventManager = null;
 	}
 
 	private void cleanupTemporaryFiles(String folderPath) {
@@ -218,10 +218,9 @@ public abstract class LocalFileSystem implements FileSystem {
 				if (item != null) {
 					item.deleteContent(null);
 				}
-				else {
-					// make sure we get item out of index
-					deallocateItemStorage(folderPath, itemName);
-				}
+
+				// make sure we get item out of index
+				deallocateItemStorage(folderPath, itemName);
 			}
 			String parentPath = folderPath + (folderPath.endsWith(SEPARATOR) ? "" : SEPARATOR);
 			for (String subfolder : getFolderNames(folderPath)) {
@@ -542,7 +541,7 @@ public abstract class LocalFileSystem implements FileSystem {
 			}
 		}
 
-		listeners.itemCreated(parentPath, name);
+		eventManager.itemCreated(parentPath, name);
 
 		return dataFile;
 	}
@@ -632,10 +631,10 @@ public abstract class LocalFileSystem implements FileSystem {
 			success = true;
 
 			if (folderPath.equals(newFolderPath)) {
-				listeners.itemRenamed(folderPath, name, newName);
+				eventManager.itemRenamed(folderPath, name, newName);
 			}
 			else {
-				listeners.itemMoved(folderPath, name, newFolderPath, newName);
+				eventManager.itemMoved(folderPath, name, newFolderPath, newName);
 			}
 			deleteEmptyVersionedFolders(folderPath);
 			deallocateItemStorage(folderPath, name);
@@ -675,8 +674,8 @@ public abstract class LocalFileSystem implements FileSystem {
 	 */
 	@Override
 	public void addFileSystemListener(FileSystemListener listener) {
-		if (listeners != null) {
-			listeners.add(listener);
+		if (eventManager != null) {
+			eventManager.add(listener);
 		}
 	}
 
@@ -685,8 +684,8 @@ public abstract class LocalFileSystem implements FileSystem {
 	 */
 	@Override
 	public void removeFileSystemListener(FileSystemListener listener) {
-		if (listeners != null) {
-			listeners.remove(listener);
+		if (eventManager != null) {
+			eventManager.remove(listener);
 		}
 	}
 
@@ -694,7 +693,7 @@ public abstract class LocalFileSystem implements FileSystem {
 	 * Returns file system listener.
 	 */
 	FileSystemListener getListener() {
-		return listeners;
+		return eventManager;
 	}
 
 	/**
@@ -844,8 +843,8 @@ public abstract class LocalFileSystem implements FileSystem {
 
 	@Override
 	public void dispose() {
-		if (listeners != null) {
-			listeners.dispose();
+		if (eventManager != null) {
+			eventManager.dispose();
 		}
 	}
 

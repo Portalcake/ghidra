@@ -17,17 +17,16 @@ package ghidra.app.util.opinion;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.AccessMode;
 import java.util.*;
 
-import generic.continues.RethrowContinuesFactory;
-import ghidra.app.util.MemoryBlockUtils;
-import ghidra.app.util.Option;
+import ghidra.app.util.*;
 import ghidra.app.util.bin.*;
 import ghidra.app.util.bin.format.macho.*;
-import ghidra.app.util.bin.format.macho.prelink.PrelinkMap;
 import ghidra.app.util.bin.format.ubi.*;
 import ghidra.app.util.importer.MessageLog;
-import ghidra.framework.model.DomainFolder;
+import ghidra.formats.gfilesystem.FileSystemService;
+import ghidra.framework.model.DomainObject;
 import ghidra.program.database.mem.FileBytes;
 import ghidra.program.model.listing.Program;
 import ghidra.util.LittleEndianDataConverter;
@@ -41,6 +40,13 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 
 	public final static String MACH_O_NAME = "Mac OS X Mach-O";
 	private static final long MIN_BYTE_LENGTH = 4;
+
+	/** Loader option to add relocation entries for chained fixups */
+	static final String ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_NAME =
+		"Add relocation entries for chained fixups";
+
+	/** Default value for loader option add chained fixups relocation entries */
+	static final boolean ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_DEFAULT = true;
 
 	@Override
 	public Collection<LoadSpec> findSupportedLoadSpecs(ByteProvider provider) throws IOException {
@@ -58,8 +64,7 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 		}
 
 		try {
-			MachHeader machHeader =
-				MachHeader.createMachHeader(RethrowContinuesFactory.INSTANCE, provider);
+			MachHeader machHeader = new MachHeader(provider);
 			String magic =
 				CpuTypes.getMagicString(machHeader.getCpuType(), machHeader.getCpuSubType());
 			List<QueryResult> results = QueryOpinionService.query(getName(), magic, null);
@@ -85,15 +90,18 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 
 			// A Mach-O file may contain PRELINK information.  If so, we use a special
 			// program builder that knows how to deal with it.
-			List<PrelinkMap> prelinkList = MachoPrelinkUtils.parsePrelinkXml(provider, monitor);
-			if (!prelinkList.isEmpty()) {
-				MachoPrelinkProgramBuilder.buildProgram(program, provider, fileBytes, prelinkList,
-					log, monitor);
+			if (MachoPrelinkUtils.isMachoPrelink(provider, monitor)) {
+				MachoPrelinkProgramBuilder.buildProgram(program, provider, fileBytes,
+					shouldAddChainedFixupsRelocations(options), log, monitor);
 			}
 			else {
-				MachoProgramBuilder.buildProgram(program, provider, fileBytes, log, monitor);
+				MachoProgramBuilder.buildProgram(program, provider, fileBytes,
+					shouldAddChainedFixupsRelocations(options), log, monitor);
 			}
 		}
+		catch (CancelledException e) {
+ 			return;
+ 		}
 		catch (IOException e) {
 			throw e;
 		}
@@ -107,6 +115,24 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 		return MACH_O_NAME;
 	}
 
+	@Override
+	public List<Option> getDefaultOptions(ByteProvider provider, LoadSpec loadSpec,
+			DomainObject domainObject, boolean loadIntoProgram) {
+		List<Option> list =
+			super.getDefaultOptions(provider, loadSpec, domainObject, loadIntoProgram);
+		if (!loadIntoProgram) {
+			list.add(new Option(ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_NAME,
+				ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_DEFAULT, Boolean.class,
+				Loader.COMMAND_LINE_ARG_PREFIX + "-addChainedFixupsRelocations"));
+		}
+		return list;
+	}
+
+	private boolean shouldAddChainedFixupsRelocations(List<Option> options) {
+		return OptionUtils.getOption(ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_NAME, options,
+			ADD_CHAINED_FIXUPS_RELOCATIONS_OPTION_DEFAULT);
+	}
+
 	/**
 	 * Overrides the default implementation to account for Universal Binary (UBI) files. 
 	 * These must be specially parsed to find the internal file matching the current architecture.
@@ -118,24 +144,23 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 	 * import method will be invoked. 
 	 */
 	@Override
-	protected boolean importLibrary(String libName, DomainFolder libFolder, File libFile,
-			LoadSpec loadSpec, List<Option> options, MessageLog log, Object consumer,
-			Set<String> unprocessedLibs, List<Program> programList, TaskMonitor monitor)
-			throws CancelledException, IOException {
+	protected ByteProvider createLibraryByteProvider(File libFile, LoadSpec loadSpec, MessageLog log)
+			throws IOException {
 
 		if (!libFile.isFile()) {
-			return false;
+			return null;
 		}
 
-		try (ByteProvider provider = new RandomAccessByteProvider(libFile)) {
+		ByteProvider provider = new FileByteProvider(libFile,
+			FileSystemService.getInstance().getLocalFSRL(libFile), AccessMode.READ);
 
-			FatHeader header =
-				FatHeader.createFatHeader(RethrowContinuesFactory.INSTANCE, provider);
+		try {
+			FatHeader header = new FatHeader(provider);
 			List<FatArch> architectures = header.getArchitectures();
 
 			if (architectures.isEmpty()) {
 				log.appendMsg("WARNING! No archives found in the UBI: " + libFile);
-				return false;
+				return null;
 			}
 
 			for (FatArch architecture : architectures) {
@@ -154,12 +179,10 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 				// input stream provider (you can't read the same bytes over again) and will throw 
 				// an exception. To avoid that, just create the provider from the original file 
 				// provider, and not from the FatArch input stream. 
-				try (ByteProvider bp = new ByteProviderWrapper(provider, architecture.getOffset(),
-					architecture.getSize())) {
-					if (super.importLibrary(libName, libFolder, libFile, bp, loadSpec, options, log,
-						consumer, unprocessedLibs, programList, monitor)) {
-						return true;
-					}
+				ByteProvider bp = new ByteProviderWrapper(provider, architecture.getOffset(), architecture.getSize());
+				LoadSpec libLoadSpec = matchSupportedLoadSpec(loadSpec, provider);
+				if (libLoadSpec != null) {
+					return bp;
 				}
 			}
 		}
@@ -168,7 +191,6 @@ public class MachoLoader extends AbstractLibrarySupportLoader {
 			// not an error condition so no need to log.
 		}
 
-		return super.importLibrary(libName, libFolder, libFile, loadSpec, options, log, consumer,
-			unprocessedLibs, programList, monitor);
+		return provider;
 	}
 }

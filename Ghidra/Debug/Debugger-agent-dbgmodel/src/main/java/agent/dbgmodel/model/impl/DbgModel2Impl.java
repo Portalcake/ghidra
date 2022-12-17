@@ -72,6 +72,7 @@ public class DbgModel2Impl extends AbstractDbgModel
 	protected DbgModelTargetSession session;
 
 	protected Map<Object, TargetObject> objectMap = new HashMap<>();
+	private boolean suppressDescent = false;
 
 	public DbgModel2Impl() {
 		this.dbg = new DbgManager2Impl();
@@ -183,6 +184,11 @@ public class DbgModel2Impl extends AbstractDbgModel
 	}
 
 	@Override
+	public void deleteModelObject(Object object) {
+		objectMap.remove(object);
+	}
+
+	@Override
 	public <T> CompletableFuture<T> gateFuture(CompletableFuture<T> future) {
 		return super.gateFuture(future).exceptionally(ex -> {
 			for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
@@ -192,5 +198,14 @@ public class DbgModel2Impl extends AbstractDbgModel
 			}
 			return ExceptionUtils.rethrow(ex);
 		});
+	}
+
+	@Override
+	public boolean isSuppressDescent() {
+		return suppressDescent;
+	}
+
+	public void setSuppressDescent(boolean suppressDescent) {
+		this.suppressDescent = suppressDescent;
 	}
 }

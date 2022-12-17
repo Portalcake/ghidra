@@ -59,6 +59,13 @@ class MemSearchDialog extends DialogComponentProvider {
 	private static final SearchData DEFAULT_SEARCH_DATA =
 		SearchData.createInvalidInputSearchData(ENTER_TEXT_MESSAGE);
 
+	// The fields that use this value take in user input.  If the user input large, it affects
+	// the minimum and preferred size of the the fields.  This, in turn, affects how this dialog
+	// gets packed when the Advanced button is toggled.   Without using a size restriction, this
+	// dialog's contents may move as the dialog is re-packed.
+	private static final int INPUT_FIELD_MIN_SIZE_WIDTH = 140;
+	private static final int INPUT_FIELD_MIN_SIZE_HEIGHT = 25;
+
 	MemSearchPlugin plugin;
 	boolean isMnemonic;
 
@@ -154,11 +161,6 @@ class MemSearchDialog extends DialogComponentProvider {
 		updateSearchButtonEnablement();
 	}
 
-	void dispose() {
-		close();
-		this.plugin = null;
-	}
-
 	private void setEndianEnabled(boolean enabled) {
 		littleEndian.setEnabled(enabled);
 		bigEndian.setEnabled(enabled);
@@ -169,7 +171,7 @@ class MemSearchDialog extends DialogComponentProvider {
 		super.executeProgressTask(task, delay);
 	}
 
-	void updateSearchButtonEnablement() {
+	private void updateSearchButtonEnablement() {
 		nextButton.setEnabled(searchEnabled && !isSearching && hasValidSearchData);
 		previousButton.setEnabled(searchEnabled && !isSearching && hasValidSearchData &&
 			currentFormat.supportsBackwardsSearch());
@@ -305,10 +307,9 @@ class MemSearchDialog extends DialogComponentProvider {
 		inputPanel.setLayout(new GridLayout(0, 1));
 		valueComboBox = new GhidraComboBox<>();
 		valueComboBox.setEditable(true);
+
 		valueField = (JTextField) valueComboBox.getEditor().getEditorComponent();
-
 		valueField.setToolTipText(currentFormat.getToolTip());
-
 		valueField.setDocument(new RestrictedInputDocument());
 		valueField.addActionListener(ev -> {
 			if (nextButton.isEnabled()) {
@@ -320,6 +321,15 @@ class MemSearchDialog extends DialogComponentProvider {
 		hexSeqField = new GDLabel();
 		hexSeqField.setName("HexSequenceField");
 		hexSeqField.setBorder(BorderFactory.createLoweredBevelBorder());
+
+		// see note for field minimum size field above
+		Dimension size = new Dimension(INPUT_FIELD_MIN_SIZE_WIDTH, INPUT_FIELD_MIN_SIZE_HEIGHT);
+		valueComboBox.setPreferredSize(size);
+		valueComboBox.setMinimumSize(size);
+
+		hexSeqField.setPreferredSize(size);
+		hexSeqField.setMinimumSize(size);
+
 		inputPanel.add(hexSeqField);
 
 		JPanel searchPanel = new JPanel(new BorderLayout());
@@ -366,7 +376,6 @@ class MemSearchDialog extends DialogComponentProvider {
 	private Container createSeparatorPanel() {
 		JPanel panel = new JPanel(new GridLayout(1, 1));
 		panel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 10));
-
 		panel.add(new JSeparator(SwingConstants.VERTICAL));
 		return panel;
 	}
@@ -376,22 +385,14 @@ class MemSearchDialog extends DialogComponentProvider {
 		panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 10));
 		panel.add(createSeparatorPanel(), BorderLayout.WEST);
 		panel.add(buildAdvancedPanelContents());
-
 		return panel;
 	}
 
 	private Container buildAdvancedPanelContents() {
 		JPanel panel = new JPanel(new VerticalLayout(5));
-
-		// endieness
 		panel.add(buildEndienessPanel());
-
-		// defined/undefined data
 		panel.add(buildCodeUnitTypesPanel());
-
-		// alignment
 		panel.add(buildAlignmentPanel());
-
 		return panel;
 	}
 
@@ -564,7 +565,6 @@ class MemSearchDialog extends DialogComponentProvider {
 		optionsPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 20, 10));
 		optionsPanel.setLayout(new BoxLayout(optionsPanel, BoxLayout.Y_AXIS));
 		optionsPanel.add(northPanel);
-//		optionsPanel.add( southPanel );
 		optionsPanel.add(advancedButtonPanel);
 
 		return optionsPanel;
@@ -580,10 +580,10 @@ class MemSearchDialog extends DialogComponentProvider {
 		memoryBlockGroup.add(loadedBlocks);
 		memoryBlockGroup.add(allBlocks);
 
-		loadedBlocks.setToolTipText(HTMLUtilities.toHTML(
-			"Only searches memory blocks that are loaded in a running executable.\n  " +
-				"Ghidra now includes memory blocks for other data such as section headers.\n" +
-				"This option exludes these OTHER (non loaded) blocks."));
+		loadedBlocks.setToolTipText(HTMLUtilities
+				.toHTML("Only searches memory blocks that are loaded in a running executable.\n  " +
+					"Ghidra now includes memory blocks for other data such as section headers.\n" +
+					"This option exludes these OTHER (non loaded) blocks."));
 		allBlocks.setToolTipText(
 			"Searches all memory blocks including blocks that are not actually loaded in a running executable");
 
@@ -654,9 +654,6 @@ class MemSearchDialog extends DialogComponentProvider {
 		return false;
 	}
 
-	/* (non Javadoc)
-	 * @see ghidra.util.bean.GhidraDialog#getTaskScheduler()
-	 */
 	@Override
 	protected TaskScheduler getTaskScheduler() {
 		return super.getTaskScheduler();
@@ -712,6 +709,9 @@ class MemSearchDialog extends DialogComponentProvider {
 		@Override
 		public void insertString(int offs, String str, AttributeSet a) throws BadLocationException {
 			clearStatusText();
+
+			// allow pasting numbers in the forms like 0xABC or ABCh
+			str = removeNumberBasePrefixAndSuffix(str);
 
 			String currentText = getText(0, getLength());
 			String beforeOffset = currentText.substring(0, offs);
@@ -791,6 +791,38 @@ class MemSearchDialog extends DialogComponentProvider {
 			}
 			return null;
 		}
+
+		private String removeNumberBasePrefixAndSuffix(String str) {
+			if (!(currentFormat instanceof HexSearchFormat ||
+				currentFormat instanceof BinarySearchFormat)) {
+				return str;
+			}
+
+			String numMaybe = str.strip();
+			String lowercase = numMaybe.toLowerCase();
+			if (currentFormat instanceof HexSearchFormat) {
+				if (lowercase.startsWith("0x")) {
+					numMaybe = numMaybe.substring(2);
+				}
+				else if (lowercase.startsWith("$")) {
+					numMaybe = numMaybe.substring(1);
+				}
+				else if (lowercase.endsWith("h")) {
+					numMaybe = numMaybe.substring(0, numMaybe.length() - 1);
+				}
+			}
+			else {
+				if (lowercase.startsWith("0b")) {
+					numMaybe = numMaybe.substring(2);
+				}
+			}
+
+			// check if the resultant number looks valid for insertion (i.e. not empty)
+			if (!numMaybe.isEmpty()) {
+				return numMaybe;
+			}
+			return str;
+		}
 	}
 
 	boolean getShowAdvancedOptions() {
@@ -803,16 +835,16 @@ class MemSearchDialog extends DialogComponentProvider {
 		}
 	}
 
-	public void setSearchEnabled(boolean b) {
+	void setSearchEnabled(boolean b) {
 		searchEnabled = b;
 	}
 
-	public void searchCompleted() {
+	void searchCompleted() {
 		isSearching = false;
 		updateSearchButtonEnablement();
 	}
 
-	public String getSearchText() {
+	String getSearchText() {
 		return valueComboBox.getText();
 	}
 

@@ -18,15 +18,14 @@ package ghidra.program.database.data;
 import java.io.IOException;
 
 import db.*;
-import ghidra.program.database.map.AddressMap;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * Adapter to access the Pointer database table for Pointer data types.
- * 
+ *
  */
-abstract class PointerDBAdapter {
+abstract class PointerDBAdapter implements RecordTranslator {
 	static final String POINTER_TABLE_NAME = "Pointers";
 
 	static final Schema SCHEMA = new Schema(PointerDBAdapterV2.VERSION, "Pointer ID",
@@ -37,8 +36,8 @@ abstract class PointerDBAdapter {
 	static final int PTR_CATEGORY_COL = 1;
 	static final int PTR_LENGTH_COL = 2;
 
-	static PointerDBAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor,
-			AddressMap addrMap) throws VersionException, IOException {
+	static PointerDBAdapter getAdapter(DBHandle handle, int openMode, TaskMonitor monitor)
+			throws VersionException, IOException {
 
 		if (openMode == DBConstants.CREATE) {
 			return new PointerDBAdapterV2(handle, true);
@@ -96,7 +95,7 @@ abstract class PointerDBAdapter {
 	}
 
 	/**
-	 * 
+	 *
 	 */
 	abstract void deleteTable(DBHandle handle) throws IOException;
 
@@ -105,6 +104,7 @@ abstract class PointerDBAdapter {
 	 * @param dataTypeID data type ID of the date type being pointed to
 	 * @param categoryID the category ID of the datatype
 	 * @param length pointer size in bytes
+	 * @return the record
 	 * @throws IOException if there was a problem accessing the database
 	 */
 	abstract DBRecord createRecord(long dataTypeID, long categoryID, int length) throws IOException;
@@ -117,6 +117,11 @@ abstract class PointerDBAdapter {
 	 */
 	abstract DBRecord getRecord(long pointerID) throws IOException;
 
+	/**
+	 * An iterator over the records of this adapter
+	 * @return the iterator
+	 * @throws IOException if there was a problem accessing the database
+	 */
 	abstract RecordIterator getRecords() throws IOException;
 
 	/**
@@ -135,51 +140,11 @@ abstract class PointerDBAdapter {
 	abstract void updateRecord(DBRecord record) throws IOException;
 
 	/**
-	 * Gets all the pointer data types that are contained in the category that 
+	 * Gets all the pointer data types that are contained in the category that
 	 * have the indicated ID.
 	 * @param categoryID the category whose pointer data types are wanted.
 	 * @return an array of IDs for the pointer data types in the category.
 	 * @throws IOException if the database can't be accessed.
 	 */
 	abstract Field[] getRecordIdsInCategory(long categoryID) throws IOException;
-
-	DBRecord translateRecord(DBRecord rec) {
-		return rec;
-	}
-
-	class TranslatedRecordIterator implements RecordIterator {
-		private RecordIterator it;
-
-		TranslatedRecordIterator(RecordIterator it) {
-			this.it = it;
-		}
-
-		@Override
-		public boolean delete() throws IOException {
-			throw new UnsupportedOperationException();
-		}
-
-		@Override
-		public boolean hasNext() throws IOException {
-			return it.hasNext();
-		}
-
-		@Override
-		public boolean hasPrevious() throws IOException {
-			return it.hasPrevious();
-		}
-
-		@Override
-		public DBRecord next() throws IOException {
-			DBRecord rec = it.next();
-			return translateRecord(rec);
-		}
-
-		@Override
-		public DBRecord previous() throws IOException {
-			DBRecord rec = it.previous();
-			return translateRecord(rec);
-		}
-	}
-
 }

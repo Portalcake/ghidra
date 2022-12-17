@@ -16,26 +16,27 @@
 package ghidra.trace.database.property;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.locks.ReadWriteLock;
 
 import db.DBHandle;
 import db.DBRecord;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.ProgramUserData;
-import ghidra.program.model.util.TypeMismatchException;
 import ghidra.trace.database.DBTrace;
 import ghidra.trace.database.DBTraceManager;
 import ghidra.trace.database.map.AbstractDBTracePropertyMap;
 import ghidra.trace.database.map.AbstractDBTracePropertyMap.*;
 import ghidra.trace.database.thread.DBTraceThreadManager;
-import ghidra.trace.model.map.TracePropertyMap;
 import ghidra.trace.model.property.TraceAddressPropertyManager;
+import ghidra.trace.model.property.TracePropertyMap;
 import ghidra.util.*;
 import ghidra.util.database.*;
 import ghidra.util.database.annot.*;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.VersionException;
+import ghidra.util.map.TypeMismatchException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -73,6 +74,7 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 		void set(String name, Class<?> valueClass) {
 			this.name = name;
 			this.type = valueClass.getName();
+			update(NAME_COLUMN, TYPE_COLUMN);
 		}
 
 		Class<?> getValueClass() throws ClassNotFoundException {
@@ -89,8 +91,9 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 	protected final DBCachedObjectStore<DBTraceAddressPropertyEntry> propertyStore;
 	protected final Map<String, AbstractDBTracePropertyMap<?, ?>> propertyMapsByName =
 		new HashMap<>();
-	protected final Map<String, TracePropertyMap<?>> propertyMapsView =
-		Collections.unmodifiableMap(propertyMapsByName);
+
+	protected final TraceAddressPropertyManager apiView =
+		new DBTraceAddressPropertyManagerApiView(this);
 
 	public DBTraceAddressPropertyManager(DBHandle dbh, DBOpenMode openMode, ReadWriteLock lock,
 			TaskMonitor monitor, Language baseLanguage, DBTrace trace,
@@ -189,9 +192,26 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 			}
 			if (valueClass != map.getValueClass()) {
 				throw new TypeMismatchException("Property " + name + " has type " +
-						map.getValueClass() + ", not " + valueClass);
+					map.getValueClass() + ", not " + valueClass);
 			}
 			return (AbstractDBTracePropertyMap<T, ?>) map;
+		}
+	}
+
+	@Override
+	@SuppressWarnings("unchecked")
+	public <T> TracePropertyMap<? extends T> getPropertyMapExtends(String name,
+			Class<T> valueClass) {
+		try (LockHold hold = LockHold.lock(lock.readLock())) {
+			AbstractDBTracePropertyMap<?, ?> map = propertyMapsByName.get(name);
+			if (map == null) {
+				return null;
+			}
+			if (!valueClass.isAssignableFrom(map.getValueClass())) {
+				throw new TypeMismatchException("Property " + name + " has type " +
+					map.getValueClass() + ", which does not extend " + valueClass);
+			}
+			return (TracePropertyMap<? extends T>) map;
 		}
 	}
 
@@ -214,29 +234,12 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 
 	@Override
 	@SuppressWarnings("unchecked")
-	public <T> TracePropertyMap<? extends T> getPropertyGetter(String name, Class<T> valueClass) {
-		try (LockHold hold = LockHold.lock(lock.readLock())) {
-			AbstractDBTracePropertyMap<?, ?> map = propertyMapsByName.get(name);
-			if (map == null) {
-				return null;
-			}
-			if (!valueClass.isAssignableFrom(map.getValueClass())) {
-				throw new TypeMismatchException("Property " + name + " has type " +
-						map.getValueClass() + ", which does not extend " + valueClass);
-			}
-			return (TracePropertyMap<? extends T>) map;
-		}
-	}
-
-	@Override
-	@SuppressWarnings("unchecked")
-	public <T> TracePropertyMap<? super T> getOrCreatePropertySetter(String name,
+	public <T> TracePropertyMap<? super T> getOrCreatePropertyMapSuper(String name,
 			Class<T> valueClass) {
 		try (LockHold hold = LockHold.lock(lock.writeLock())) {
 			AbstractDBTracePropertyMap<?, ?> map = propertyMapsByName.get(name);
 			if (map == null) {
 				try {
-					// TODO: This is not ideal
 					return createPropertyMap(name, valueClass);
 				}
 				catch (DuplicateNameException e) {
@@ -245,9 +248,9 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 			}
 			if (!map.getValueClass().isAssignableFrom(valueClass)) {
 				throw new TypeMismatchException("Property " + name + " has type " +
-						map.getValueClass() + ", which is not a super-type of " + valueClass);
+					map.getValueClass() + ", which is not a super-type of " + valueClass);
 			}
-			return (TracePropertyMap<T>) map;
+			return (TracePropertyMap<? super T>) map;
 		}
 	}
 
@@ -260,7 +263,9 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 
 	@Override
 	public Map<String, TracePropertyMap<?>> getAllProperties() {
-		return propertyMapsView;
+		try (LockHold hold = LockHold.lock(lock.readLock())) {
+			return Map.copyOf(propertyMapsByName);
+		}
 	}
 
 	@Override
@@ -275,5 +280,9 @@ public class DBTraceAddressPropertyManager implements TraceAddressPropertyManage
 			propertyMapsByName.clear();
 			loadPropertyMaps(TaskMonitor.DUMMY);
 		}
+	}
+
+	public TraceAddressPropertyManager getApiPropertyManager() {
+		return apiView;
 	}
 }

@@ -15,10 +15,13 @@
  */
 package ghidra.app.util.html;
 
+import static ghidra.util.HTMLUtilities.*;
+
 import java.awt.Color;
 import java.util.*;
 
 import ghidra.app.plugin.core.datamgr.util.DataTypeUtils;
+import ghidra.app.util.datatype.DataTypeUrl;
 import ghidra.program.model.data.*;
 import ghidra.util.*;
 import ghidra.util.exception.AssertException;
@@ -70,13 +73,14 @@ public abstract class HTMLDataTypeRepresentation {
 	// Note 1: Indentation tags (note: we switched from <DIV> tags because the Java rendering engine
 	// does not keep the color of the div's parent tags.  The <P> tag seems to work).
 	// Note 2: Switch back to <DIV> from <P>, since the <P> tag gets broken by the <TABLE> tag
-	// used by composite types.   If not inheriting the color becomes an issue, then we will need 
+	// used by composite types.   If not inheriting the color becomes an issue, then we will need
 	// to find another solution for indentation.
 	protected static final String INDENT_OPEN = "<DIV STYLE='margin-left: 10px;'>";
 	protected static final String INDENT_CLOSE = "</DIV>";
 
 	protected static final String ELLIPSES = "...";
 	protected static final String LENGTH_PREFIX = "Length: ";
+	protected static final String ALIGNMENT_PREFIX = "Alignment: ";
 
 	protected final static String FORWARD_SLASH = "&#47;";
 
@@ -87,7 +91,7 @@ public abstract class HTMLDataTypeRepresentation {
 	protected final static Color DIFF_COLOR = ValidatableLine.INVALID_COLOR;
 
 	private static String createSpace(int numberOfSpaces) {
-		StringBuffer buffer = new StringBuffer();
+		StringBuilder buffer = new StringBuilder();
 		for (int i = 0; i < numberOfSpaces; i++) {
 			buffer.append(HTML_SPACE);
 		}
@@ -104,12 +108,17 @@ public abstract class HTMLDataTypeRepresentation {
 		return buffer;
 	}
 
-	protected static StringBuilder addDataTypeLength(DataType dt, StringBuilder buffer) {
+	protected static StringBuilder addDataTypeLengthAndAlignment(DataType dt,
+			StringBuilder buffer) {
 
-		buffer.append(BR);
 		buffer.append(LENGTH_PREFIX);
 		buffer.append(getDataTypeLengthString(dt));
-
+		if (dt != null && dt.getLength() >= 0) {
+			buffer.append(HTML_SPACE);
+			buffer.append(HTML_SPACE);
+			buffer.append(ALIGNMENT_PREFIX);
+			buffer.append(dt.getAlignment());
+		}
 		return buffer;
 	}
 
@@ -119,7 +128,7 @@ public abstract class HTMLDataTypeRepresentation {
 			lengthString = "<i>Unknown</i>";
 		}
 		else {
-			int length = dt.getLength();
+			int length = dt.isZeroLength() ? 0 : dt.getLength();
 			if (length >= 0) {
 				lengthString = Integer.toString(length);
 			}
@@ -134,7 +143,7 @@ public abstract class HTMLDataTypeRepresentation {
 	 * Returns the plain-text value of the data type's description.
 	 * <p>
 	 * If there were html tags in the string, they are escaped.
-	 * 
+	 *
 	 * @param dataType the type to get the description / comment for
 	 * @return plain-text string, w/html escaped
 	 */
@@ -167,7 +176,7 @@ public abstract class HTMLDataTypeRepresentation {
 	/**
 	 * Formats a multi-line plain-text comment string into a HTML string where the text has been
 	 * wrapped at MAX_LINE_LENGTH.
-	 *   
+	 *
 	 * @param string plain-text string
 	 * @return list of html strings
 	 */
@@ -241,9 +250,9 @@ public abstract class HTMLDataTypeRepresentation {
 
 	/**
 	 * Formats a multi-line plain-text comment as a list of HTML marked-up lines.
-	 *  
+	 *
 	 * @param comment multi-line plain-text string
-	 * @param maxLines max number of formatted lines to return 
+	 * @param maxLines max number of formatted lines to return
 	 * @return list of html marked-up {@link TextLine}s
 	 */
 	protected static List<TextLine> createCommentLines(String comment, int maxLines) {
@@ -279,31 +288,6 @@ public abstract class HTMLDataTypeRepresentation {
 		return newList;
 	}
 
-	/* Returns a data type that can later be located */
-	protected static DataType getLocatableDataType(DataType type) {
-
-		if (type instanceof DefaultDataType) {
-			return null; // special case; for some reason this type has a universal ID
-		}
-
-		UniversalID id = type.getUniversalID();
-		if (id == null) {
-			type = DataTypeUtils.getNamedBaseDataType(type);
-			id = type.getUniversalID();
-		}
-
-		if (id == null) {
-			return null;
-		}
-
-		DataTypeManager manager = type.getDataTypeManager();
-		if (manager == null) {
-			return null;
-		}
-
-		return type;
-	}
-
 	protected String originalHTMLData;
 
 	/** Default constructor for those who promise to later set the HTML text */
@@ -325,9 +309,9 @@ public abstract class HTMLDataTypeRepresentation {
 	}
 
 	/**
-	 * Returns an HTML string for this data representation object.  The HTML returned will be 
+	 * Returns an HTML string for this data representation object.  The HTML returned will be
 	 * truncated if it is too long.   To get the full HTML, call {@link #getFullHTMLString()}.
-	 * 
+	 *
 	 * @return the html
 	 * @see #getFullHTMLString()
 	 */
@@ -337,7 +321,7 @@ public abstract class HTMLDataTypeRepresentation {
 
 	/**
 	 * Returns an HTML string for this data representation object
-	 * 
+	 *
 	 * @return the html
 	 * @see #getHTMLString()
 	 */
@@ -345,16 +329,16 @@ public abstract class HTMLDataTypeRepresentation {
 		return HTML_OPEN + originalHTMLData + HTML_CLOSE;
 	}
 
-	/** 
-	 * This is like {@link #getHTMLString()}, but does not put HTML tags around the data 
+	/**
+	 * This is like {@link #getHTMLString()}, but does not put HTML tags around the data
 	 * @return the content
 	 */
 	public String getHTMLContentString() {
 		return originalHTMLData; // default to full text; subclasses can override
 	}
 
-	/** 
-	* This is like {@link #getHTMLString()}, but does not put HTML tags around the data 
+	/**
+	* This is like {@link #getHTMLString()}, but does not put HTML tags around the data
 	* @return the content
 	*/
 	public String getFullHTMLContentString() {
@@ -380,18 +364,115 @@ public abstract class HTMLDataTypeRepresentation {
 		headerLines.addAll(createCommentLines(comment, 4));
 
 		// put the path info in; don't display a floating '/' when the path is the root path
-		CategoryPath path = dataType.getCategoryPath();
-		if (!path.equals(CategoryPath.ROOT)) {
-			headerLines.add(new TextLine(HTMLUtilities.escapeHTML(path.getPath())));
-			headerLines.add(new TextLine(BR));
-		}
+//		CategoryPath path = dataType.getCategoryPath();
+//		if (!path.equals(CategoryPath.ROOT)) {
+//			headerLines.add(new TextLine(HTMLUtilities.escapeHTML(path.getPath())));
+//			headerLines.add(new TextLine(BR));
+//		}
 
 		return headerLines;
 	}
 
 	protected TextLine buildFooterText(DataType dataType) {
 		int length = dataType.getLength();
-		return new TextLine((length >= 0) ? Integer.toString(length) : " <i>Unsized</i>");
+		if (length < 0) {
+			return new TextLine(" <i>Unsized</i>");
+		}
+		if (dataType.isZeroLength()) {
+			length = 0;
+		}
+		return new TextLine(Integer.toString(length));
+	}
+
+	private static boolean canLinkDataType(DataType dt) {
+		if (dt instanceof AbstractDataType) {
+			return false;
+		}
+		UniversalID universalID = dt.getUniversalID();
+		if (universalID == null) {
+			return false;
+		}
+		DataTypeManager dtm = dt.getDataTypeManager();
+		if (dtm == null) {
+			return false;
+		}
+		return dtm.findDataTypeForID(dt.getUniversalID()) != null;
+	}
+
+	protected static String generateTypeName(DataType dt, Color color, boolean trim) {
+
+		String[] pointerArraySplit = splitPointerArray(dt);
+		if (pointerArraySplit != null) {
+			DataType baseDt = DataTypeUtils.getNamedBaseDataType(dt);
+			if (baseDt != null && canLinkDataType(baseDt)) {
+				dt = baseDt; // ok to split for link
+			}
+			else {
+				pointerArraySplit = null; // do not split/link
+			}
+		}
+
+		String type = dt.getName();
+		if (trim) {
+			type = truncateAsNecessary(type);
+		}
+		type = friendlyEncodeHTML(type);
+
+		if (pointerArraySplit == null && !canLinkDataType(dt)) {
+			type = wrapStringInColor(type, color);
+			return type;
+		}
+
+		//
+		// Markup the name with info for later hyperlink capability, as needed by the client
+		//
+		DataTypeUrl url = new DataTypeUrl(dt);
+		String wrapped = HTMLUtilities.wrapWithLinkPlaceholder(type, url.toString());
+		if (pointerArraySplit != null) {
+			wrapped += friendlyEncodeHTML(pointerArraySplit[1], false);
+		}
+		wrapped = wrapStringInColor(wrapped, color);
+		return wrapped;
+	}
+
+	private static String[] splitPointerArray(DataType dt) {
+
+		if (!(dt instanceof Pointer) && !(dt instanceof Array)) {
+			return null;
+		}
+
+		String name = dt.getName();
+
+		int lastIndex = -1;
+		int index = name.length() - 1;
+		while (true) {
+			if (index <= 0) {
+				// unexpected condition
+				lastIndex = -1;
+				break;
+			}
+			char c = name.charAt(index);
+			if (c == '*' || c == '[') {
+				lastIndex = index;
+			}
+			else if (c != ' ' && c != ']' && !Character.isDigit(c)) {
+				break;
+			}
+			--index;
+		}
+
+		if (lastIndex <= 0) {
+			return null;
+		}
+
+		if (name.charAt(lastIndex - 1) == ' ') {
+			--lastIndex;
+		}
+
+		String[] split = new String[2];
+		split[0] = name.substring(0, lastIndex).trim();
+		split[1] = name.substring(lastIndex);
+		return split;
 	}
 
 //==================================================================================================

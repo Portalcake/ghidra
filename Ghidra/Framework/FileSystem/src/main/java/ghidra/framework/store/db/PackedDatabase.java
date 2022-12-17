@@ -179,7 +179,7 @@ public class PackedDatabase extends Database {
 
 			LocalManagedBufferFile bfile = new LocalManagedBufferFile(dbHandle.getBufferSize(),
 				bfMgr, FolderItem.DEFAULT_CHECKOUT_ID);
-			dbHandle.saveAs(bfile, newDatabaseId, monitor);
+			dbHandle.saveAs(bfile, newDatabaseId, true, monitor);
 			packDatabase(monitor);
 			addInstance(this);
 			success = true;
@@ -556,10 +556,10 @@ public class PackedDatabase extends Database {
 			lock(packedDbLock, true, true);
 		}
 		try {
-			long modTime = packedDbFile.lastModified();
-			if (modTime == 0) {
+			if (!packedDbFile.isFile()) {
 				throw new FileNotFoundException("File not found: " + packedDbFile);
 			}
+			long modTime = packedDbFile.lastModified();
 			if (isCached) {
 				CachedDB entry = PackedDatabaseCache.getCache().getCachedDBEntry(packedDbFile);
 				if (entry != null && entry.getLastModified() == modTime) {

@@ -67,7 +67,7 @@ public final class StringField extends Field {
 	}
 
 	@Override
-	boolean isNull() {
+	public boolean isNull() {
 		return bytes == null;
 	}
 
@@ -161,7 +161,7 @@ public final class StringField extends Field {
 
 	@Override
 	public boolean equals(Object obj) {
-		if (obj == null || !(obj instanceof StringField)) {
+		if (!(obj instanceof StringField)) {
 			return false;
 		}
 		StringField f = (StringField) obj;
@@ -179,11 +179,11 @@ public final class StringField extends Field {
 	@Override
 	public void setBinaryData(byte[] bytes) {
 		checkImmutable();
+		this.bytes = bytes;
 		if (bytes == null) {
 			str = null;
 		}
 		else {
-			this.bytes = bytes;
 			try {
 				str = new String(bytes, ENCODING);
 			}

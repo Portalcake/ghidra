@@ -6,11 +6,13 @@ ARCH_TYPE=
 ADDITIONAL_FLAGS=
 SLEIGHVERSION=sleigh-2.1.0
 
-EXTENSION_POINT=../../../../../../../ghidra.ext/Ghidra/Features/DecompilerExtensions/src/decompile/cpp
+EXTENSION_POINT=../../../../../../../ghidra.ext-u/Ghidra/Features/DecompilerExtensions/src/decompile/cpp
 GHIDRA_BIN=../../../../../../../ghidra.bin
 
 OS = $(shell uname -s)
 CPU = $(shell uname -m)
+
+# TODO: need to revise to support arm64/aarch64 arch - improve on both OS and arch detection 
 
 ifeq ($(OS),Linux)
 # Allow ARCH to be specified externally so we can build for 32-bit from a 64-bit Linux
@@ -19,10 +21,10 @@ ifndef ARCH
 endif
 ifeq ($(ARCH),x86_64)
   ARCH_TYPE=-m64
-  OSDIR=linux64
+  OSDIR=linux_x86_64
 else
   ARCH_TYPE=-m32
-  OSDIR=linux32
+  OSDIR=linux_x86_32
 endif
 endif
 
@@ -30,7 +32,7 @@ ifeq ($(OS),Darwin)
   MAKE_STATIC=
   ARCH_TYPE=-arch x86_64
   ADDITIONAL_FLAGS=-mmacosx-version-min=10.6 -w
-  OSDIR=osx64
+  OSDIR=mac_x86_64
 endif
 
 CC=gcc
@@ -75,12 +77,12 @@ EXTERNAL_CONSOLEEXT_NAMES=$(subst .cc,,$(notdir $(EXTERNAL_CONSOLEEXT_SOURCE)))
 
 # The following macros partition all the source files, there should be no overlaps
 # Some core source files used in all projects
-CORE=	xml space float address pcoderaw translate opcodes globalcontext
+CORE=	xml marshal space float address pcoderaw translate opcodes globalcontext
 # Additional core files for any projects that decompile
 DECCORE=capability architecture options graph cover block cast typeop database cpool \
 	comment stringmanage fspec action loadimage grammar varnode op \
 	type variable varmap jumptable emulate emulateutil flow userop \
-	funcdata funcdata_block funcdata_op funcdata_varnode pcodeinject \
+	funcdata funcdata_block funcdata_op funcdata_varnode unionresolve pcodeinject \
 	heritage prefersplit rangeutil ruleaction subflow blockaction merge double \
 	transform coreaction condexe override dynamic crc32 prettyprint \
 	printlanguage printc printjava memstate opbehavior paramid $(COREEXT_NAMES)
@@ -94,7 +96,7 @@ GHIDRA=	ghidra_arch inject_ghidra ghidra_translate loadimage_ghidra \
 # Additional files specific to the sleigh compiler
 SLACOMP=slgh_compile slghparse slghscan
 # Additional special files that should not be considered part of the library
-SPECIAL=consolemain sleighexample test testfunction
+SPECIAL=consolemain sleighexample test
 # Any additional modules for the command line decompiler
 EXTRA= $(filter-out $(CORE) $(DECCORE) $(SLEIGH) $(GHIDRA) $(SLACOMP) $(SPECIAL),$(ALL_NAMES))
 
@@ -117,11 +119,11 @@ COMMANDLINE_NAMES=$(CORE) $(DECCORE) $(EXTRA) $(SLEIGH) consolemain
 COMMANDLINE_DEBUG=-DCPUI_DEBUG -D__TERMINAL__
 COMMANDLINE_OPT=-D__TERMINAL__
 
-TEST_NAMES=$(CORE) $(DECCORE) $(SLEIGH) $(EXTRA) testfunction test 
+TEST_NAMES=$(CORE) $(DECCORE) $(SLEIGH) $(EXTRA) test 
 TEST_DEBUG=-D__TERMINAL__
 
 GHIDRA_NAMES=$(CORE) $(DECCORE) $(GHIDRA)
-GHIDRA_NAMES_DBG=$(GHIDRA_NAMES) callgraph ifacedecomp ifaceterm interface
+GHIDRA_NAMES_DBG=$(GHIDRA_NAMES) callgraph ifacedecomp testfunction ifaceterm interface
 GHIDRA_DEBUG=-DCPUI_DEBUG
 GHIDRA_OPT=
 
@@ -296,7 +298,7 @@ libdecomp.a:	$(LIBDECOMP_OPT_OBJS)
 	ar qc libdecomp.a $(LIBDECOMP_OPT_OBJS)
 	ranlib libdecomp.a
 
-sleighexamp_dir:
+sleighexamp_dir: slghscan.cc
 	rm -rf $(SLEIGHVERSION)
 	mkdir $(SLEIGHVERSION)
 	mkdir $(SLEIGHVERSION)/src $(SLEIGHVERSION)/specfiles

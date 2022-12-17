@@ -35,7 +35,8 @@ import ghidra.program.model.address.Address;
 		@TargetElementType(type = Void.class) },
 	attributes = {
 		@TargetAttributeType(type = Void.class) })
-public class GdbModelTargetStackFrame extends DefaultTargetObject<TargetObject, GdbModelTargetStack>
+public class GdbModelTargetStackFrame
+		extends DefaultTargetObject<TargetObject, GdbModelTargetStack>
 		implements TargetStackFrame, GdbModelSelectableObject {
 	public static final String FUNC_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "function";
 	public static final String FROM_ATTRIBUTE_NAME = PREFIX_INVISIBLE + "from"; // TODO
@@ -104,7 +105,8 @@ public class GdbModelTargetStackFrame extends DefaultTargetObject<TargetObject, 
 		), Map.of( //
 			PC_ATTRIBUTE_NAME, pc, //
 			FUNC_ATTRIBUTE_NAME, func, //
-			DISPLAY_ATTRIBUTE_NAME, display = computeDisplay(frame) //
+			DISPLAY_ATTRIBUTE_NAME, display = computeDisplay(frame), //
+			VALUE_ATTRIBUTE_NAME, pc //
 		), "Refreshed");
 	}
 

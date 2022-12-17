@@ -16,18 +16,22 @@
  */
 package ghidra.app.util.cparser.C;
 
-import ghidra.program.model.data.*;
+import java.util.ArrayList;
+import java.util.List;
+
+import ghidra.program.model.data.AbstractIntegerDataType;
+import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.PointerDataType;
 
 /**
  * Container for information about a Declaration that is accumulated during parsing.
  */
 public class Declaration {
-	private int qualifier;
+	private ArrayList<Integer> qualifierList;
 	private DataType dt;
 	private String name;
 	private String comment;
 	private int bitSize = -1;
-	private boolean flexArray = false;  // true if this is a zero size flex array component
 
 	public Declaration() {
 		super();
@@ -36,6 +40,9 @@ public class Declaration {
 	public Declaration(Declaration dec) {
 		this();
 		this.dt = dec.getDataType();
+		if (dec.qualifierList != null) {
+			this.qualifierList = new ArrayList<Integer>(dec.qualifierList);
+		}
 	}
 
 	public Declaration(Declaration dec, String name) throws ParseException {
@@ -66,6 +73,9 @@ public class Declaration {
 		}
 		this.name = subDecl.name;
 		this.comment = subDecl.comment;
+		if (subDecl.qualifierList != null) {
+			this.qualifierList = new ArrayList<Integer>(subDecl.qualifierList);
+		}
 	}
 
 	public Declaration(DataType dt, String name) {
@@ -85,8 +95,11 @@ public class Declaration {
 		return comment;
 	}
 
-	public int getQualifier() {
-		return qualifier;
+	public List<Integer> getQualifiers() {
+		if (qualifierList == null) {
+			return List.of();
+		}
+		return qualifierList;
 	}
 
 	public DataType getDataType() {
@@ -104,8 +117,21 @@ public class Declaration {
 		comment = string;
 	}
 
-	public void setQualifier(int qualifier) {
-		this.qualifier = qualifier;
+	public void addQualifier(int qualifier) {
+		if (qualifierList == null) {
+			qualifierList = new ArrayList<Integer>();
+		}
+		qualifierList.add(qualifier);
+	}
+	
+	public void addQualifiers(Declaration dec) {
+		if (dec.qualifierList == null) {
+			return;
+		}
+		if (qualifierList == null) {
+			qualifierList = new ArrayList<Integer>();
+		}
+		qualifierList.addAll(dec.qualifierList);
 	}
 
 	public void setDataType(DataType type) {
@@ -155,11 +181,4 @@ public class Declaration {
 		bitSize = bits;
 	}
 
-	public void setFlexArray(boolean b) {
-		flexArray = b;
-	}
-
-	public boolean isFlexArray() {
-		return flexArray;
-	}
 }

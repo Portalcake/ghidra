@@ -65,31 +65,14 @@ public class RttiUtil {
 	 */
 	static boolean createSymbolFromDemangledType(Program program, Address rttiAddress,
 			TypeDescriptorModel typeDescriptorModel, String rttiSuffix) {
-		
+
 		rttiSuffix = SymbolUtilities.replaceInvalidChars(rttiSuffix, true);
 
-		// Get or create the namespace for this RTTI's type descriptor.
+		// Get the namespace for this RTTI's type descriptor.
 		Namespace classNamespace = typeDescriptorModel.getDescriptorAsNamespace();
 
-		// If the RTTI's type descriptor is for a class or struct then promote its 
-		// namespace to a class.
-		// <br>Note: For now this assumes all classes and structs with RTTI data must
-		// actually be classes. In the future this might need additional checking before
-		// promoting some "struct" ref types to being a class, if we can better determine
-		// whether or not they are actually classes. 
-		String refType = typeDescriptorModel.getRefType(); // Can be null.
-		boolean makeClass = "class".equals(refType) || "struct".equals(refType);
 		SymbolTable symbolTable = program.getSymbolTable();
-		if (makeClass && (classNamespace != null) && !(classNamespace instanceof GhidraClass)) {
-			try {
-				classNamespace = NamespaceUtils.convertNamespaceToClass(classNamespace);
-			}
-			catch (InvalidInputException iie) {
-				Msg.error(RttiUtil.class,
-					"Unable to convert namespace to class for namespace " + classNamespace + ".",
-					iie);
-			}
-		}
+
 
 		// See if the symbol already exists for the RTTI data.
 		Symbol matchingSymbol = symbolTable.getSymbol(rttiSuffix, rttiAddress, classNamespace);
@@ -97,23 +80,21 @@ public class RttiUtil {
 			return false;
 		}
 		// Don't create it if a similar symbol already exists at the address of the data.
-		Symbol[] symbols = symbolTable.getSymbols(rttiAddress);
+		SymbolIterator symbols = symbolTable.getSymbolsAsIterator(rttiAddress);
 		for (Symbol symbol : symbols) {
 			String name = symbol.getName();
 			if (name.contains(rttiSuffix)) {
 				return false; // Similar symbol already exists.
 			}
-			// assume any imported symbol is better than what we would put down
-			// if mangled, it will get demangled later
-			SourceType source = symbol.getSource();
-			if (source == SourceType.IMPORTED) {
-				return false;
-			}
 		}
 		try {
-			// Didn't find the symbol, so create it.
-			symbolTable.createLabel(rttiAddress, rttiSuffix, classNamespace,
+
+			// Ignore imported mangled symbol because demangling would add tick marks into the name.  
+			// The name created here is better. Set the symbol to be primary so that the demangler 
+			// won't demangle.
+			Symbol symbol = symbolTable.createLabel(rttiAddress, rttiSuffix, classNamespace,
 				SourceType.IMPORTED);
+			symbol.setPrimary();
 			return true;
 		}
 		catch (InvalidInputException e) {
@@ -121,6 +102,26 @@ public class RttiUtil {
 				"Unable to create label for " + rttiSuffix + " at " + rttiAddress + ".", e);
 			return false;
 		}
+	}
+
+	/**
+	 * Method to promote the given namespace to a class namespace
+	 * @param program the given program
+	 * @param namespace the given namespace
+	 * @return the promoted class namespace
+	 */
+	public static Namespace promoteToClassNamespace(Program program, Namespace namespace) {
+
+		if (!(namespace instanceof GhidraClass)) {
+			try {
+				namespace = NamespaceUtils.convertNamespaceToClass(namespace);
+			}
+			catch (InvalidInputException iie) {
+				Msg.error(RttiUtil.class,
+					"Unable to convert namespace to class for namespace " + namespace + ".", iie);
+			}
+		}
+		return namespace;
 	}
 
 	/**
@@ -159,7 +160,7 @@ public class RttiUtil {
 			}
 
 			// check in .text and .nep if either exists
-			if ( textBlock != null || nepBlock != null) {
+			if (textBlock != null || nepBlock != null) {
 				MemoryBlock refedBlock = memory.getBlock(referencedAddress);
 				boolean inTextBlock = ((textBlock != null) && textBlock.equals(refedBlock));
 				boolean inNepBlock = ((nepBlock != null) && nepBlock.equals(refedBlock));
@@ -168,12 +169,12 @@ public class RttiUtil {
 					break; // Not pointing to good section.
 				}
 			}
-			
+
 			// any references after the first one ends the table
 			if (tableSize > 0 && referenceManager.hasReferencesTo(currentVfPointerAddress)) {
 				break;
 			}
-			
+
 			Function function = functionManager.getFunctionAt(referencedAddress);
 
 			if (function == null &&
@@ -212,12 +213,12 @@ public class RttiUtil {
 		boolean terminationRequest = false;
 		Address commonVftableAddress = null;
 		Program program;
-		
+
 		public CommonRTTIMatchCounter(Program program) {
 			this.program = program;
 			defaultPointerSize = program.getDefaultPointerSize();
 		}
-		
+
 		public Address getinfoVfTable() {
 			return commonVftableAddress;
 		}
@@ -249,10 +250,10 @@ public class RttiUtil {
 				}
 				matchingAddrCount = 0;
 			}
-			
+
 			commonVftableAddress = possibleVftableAddress;
 			matchingAddrCount++;
-			
+
 			if (matchingAddrCount > MIN_MATCHING_VFTABLE_PTRS) {
 				// done finding good addresses have at Minimum matching number
 				terminationRequest = true;
@@ -261,7 +262,7 @@ public class RttiUtil {
 			return;
 		}
 	}
-	
+
 	/**
 	 * Method to figure out the type_info vftable address using pointed to value by all RTTI classes
 	 * @param program the current program
@@ -293,7 +294,7 @@ public class RttiUtil {
 				dataBlocks, set, monitor);
 			infoVftableAddress = vfTableAddrChecker.getinfoVfTable();
 		}
-		
+
 		// cache result of search
 		vftableMap.put(program, infoVftableAddress);
 
@@ -308,18 +309,18 @@ public class RttiUtil {
 	private static Address findTypeInfoVftableLabel(Program program) {
 		SymbolTable symbolTable = program.getSymbolTable();
 		Namespace typeinfoNamespace =
-				symbolTable.getNamespace(TYPE_INFO_NAMESPACE, program.getGlobalNamespace());
+			symbolTable.getNamespace(TYPE_INFO_NAMESPACE, program.getGlobalNamespace());
 		Symbol vftableSymbol =
-				symbolTable.getLocalVariableSymbol("vftable", typeinfoNamespace);
+			symbolTable.getLocalVariableSymbol("vftable", typeinfoNamespace);
 		if (vftableSymbol != null) {
 			return vftableSymbol.getAddress();
 		}
-		
+
 		vftableSymbol = symbolTable.getLocalVariableSymbol("`vftable'", typeinfoNamespace);
 		if (vftableSymbol != null) {
 			return vftableSymbol.getAddress();
 		}
-		
+
 		vftableSymbol = symbolTable.getLocalVariableSymbol("type_info", typeinfoNamespace);
 		if (vftableSymbol != null) {
 			return vftableSymbol.getAddress();
@@ -358,7 +359,8 @@ public class RttiUtil {
 		}
 
 		// check to see if symbol already exists both non-pdb and pdb versions
-		Symbol vftableSymbol = symbolTable.getSymbol(TYPE_INFO_NAMESPACE, address, typeinfoNamespace);
+		Symbol vftableSymbol =
+			symbolTable.getSymbol(TYPE_INFO_NAMESPACE, address, typeinfoNamespace);
 		if (vftableSymbol != null) {
 			return;
 		}
@@ -376,6 +378,8 @@ public class RttiUtil {
 					program.getName() + " Couldn't create type_info vftable symbol. ");
 				return;
 			}
+			// This fixes the double label issue that happens when there is pdb
+			vftableSymbol.setPrimary();
 		}
 		catch (InvalidInputException e) {
 			Msg.error(RttiUtil.class,

@@ -67,7 +67,7 @@ public class AutoTableDisassemblerPlugin extends ProgramPlugin implements Domain
 	final static String SEARCH_ACTION_NAME = "Search for Address Tables";
 
 	public AutoTableDisassemblerPlugin(PluginTool tool) {
-		super(tool, true, true);
+		super(tool);
 	}
 
 	@Override
@@ -103,6 +103,7 @@ public class AutoTableDisassemblerPlugin extends ProgramPlugin implements Domain
 
 	void dialogDismissed() {
 
+		addressTableDialog.dispose();
 		addressTableDialog = null;
 		if (model != null) {
 			model.dispose();

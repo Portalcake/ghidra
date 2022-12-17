@@ -4,9 +4,9 @@
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- *
+ * 
  *      http://www.apache.org/licenses/LICENSE-2.0
- *
+ * 
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -529,10 +529,14 @@ public abstract class CliAbstractSig extends CliBlob implements CliRepresentable
 		private int typeSizeBytes;
 		private int genArgCount;
 		private int countSizeBytes;
+		private long dataOffset;
 		private List<CliSigType> argTypes = new ArrayList<>();
 
 		public CliTypeGenericInst(BinaryReader reader, CliElementType typeCode) throws IOException {
 			super(typeCode);
+			
+			dataOffset = reader.getPointerIndex();
+			
 			firstType = CliElementType.fromInt(reader.readNextByte()); // Should be Class or ValueType
 			long origIndex = reader.getPointerIndex();
 			encodedType = decodeCompressedUnsignedInt(reader);
@@ -600,7 +604,7 @@ public abstract class CliAbstractSig extends CliBlob implements CliRepresentable
 		@Override
 		public DataType getDefinitionDataType() {
 			StructureDataType struct = new StructureDataType(new CategoryPath(PATH),
-				"GenericInstType" + argTypes.toString(), 0);
+				"GenericInstType" + "_" + dataOffset, 0);
 			// TODO: the toString() is included in the above line so GenericInst types can contain other GenericInst's, otherwise this is prohibited by StructureDataType
 			struct.add(CliTypeCodeDataType.dataType, "GenericInst", "GenericInst");
 			struct.add(CliTypeCodeDataType.dataType, "ClassOrValueType", "Class or ValueType");
@@ -696,11 +700,14 @@ public abstract class CliAbstractSig extends CliBlob implements CliRepresentable
 	public class CliTypeSzArray extends CliSigType {
 		private List<CliCustomMod> customMods = new ArrayList<>();
 		private CliSigType type;
+		private long dataOffset;
 
 		public CliTypeSzArray(BinaryReader reader, CliElementType typeCode)
 				throws IOException, InvalidInputException {
 			super(typeCode);
 
+			dataOffset = reader.getPointerIndex();
+			
 			while (CliCustomMod.isCustomMod(reader)) {
 				customMods.add(new CliCustomMod(reader));
 			}
@@ -723,7 +730,7 @@ public abstract class CliAbstractSig extends CliBlob implements CliRepresentable
 				modsRep += mod.toString() + ", ";
 			}
 			if (customMods.size() > 0) {
-				modsRep.substring(0, modsRep.length() - 2); // Remove last comma+space
+				modsRep = modsRep.substring(0, modsRep.length() - 2); // Remove last comma+space
 			}
 			return String.format("SzArray %s %s", modsRep, typeRep);
 		}
@@ -735,7 +742,7 @@ public abstract class CliAbstractSig extends CliBlob implements CliRepresentable
 
 		@Override
 		public DataType getDefinitionDataType() {
-			StructureDataType struct = new StructureDataType(new CategoryPath(PATH), "SzArray", 0);
+			StructureDataType struct = new StructureDataType(new CategoryPath(PATH), "SzArray" + "_" + dataOffset, 0);
 			struct.add(CliTypeCodeDataType.dataType, "TypeCode", "SzArray");
 			for (CliCustomMod mod : customMods) {
 				struct.add(mod.getDefinitionDataType());

@@ -25,7 +25,9 @@ import ghidra.program.util.DefaultLanguageService;
 
 public class GdbArmDebuggerMappingOpinion extends DefaultGdbDebuggerMappingOpinion {
 
-	// Just for the sake of having a separate type
+	/**
+	 * An opinion-specific offer class so that offers can be recognized in unit testing
+	 */
 	protected static class GdbArmOffer extends GdbDefaultOffer {
 		public GdbArmOffer(TargetObject target, int confidence, String description,
 				LanguageCompilerSpecPair lcsp, Collection<String> extraRegNames) {
@@ -33,7 +35,9 @@ public class GdbArmDebuggerMappingOpinion extends DefaultGdbDebuggerMappingOpini
 		}
 	}
 
-	// Just for the sake of having a separate type
+	/**
+	 * An opinion-specific offer class so that offers can be recognized in unit testing
+	 */
 	protected static class GdbAArch64Offer extends GdbDefaultOffer {
 		public GdbAArch64Offer(TargetObject target, int confidence, String description,
 				LanguageCompilerSpecPair lcsp, Collection<String> extraRegNames) {

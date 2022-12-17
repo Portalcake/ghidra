@@ -16,6 +16,11 @@
 #include "varmap.hh"
 #include "funcdata.hh"
 
+AttributeId ATTRIB_LOCK = AttributeId("lock",133);
+AttributeId ATTRIB_MAIN = AttributeId("main",134);
+
+ElementId ELEM_LOCALDB = ElementId("localdb",228);
+
 /// \brief Can the given intersecting RangeHint coexist with \b this at their given offsets
 ///
 /// Determine if the data-type information in the two ranges \e line \e up
@@ -43,8 +48,21 @@ bool RangeHint::reconcile(const RangeHint *b) const
 
   if (sub == (Datatype *)0) return false;
   if (umod != 0) return false;
-  if (sub->getSize() < b->type->getSize()) return false;
-  return true;
+  if (sub->getSize() == b->type->getSize()) return true;
+  if ((b->flags & Varnode::typelock)!=0) return false;
+  // If we reach here, component sizes do not match
+  // Check for data-types we want to protect more
+  type_metatype meta = a->type->getMetatype();
+  if (meta != TYPE_STRUCT && meta != TYPE_UNION) {
+    if (meta != TYPE_ARRAY || ((TypeArray *)(a->type))->getBase()->getMetatype() == TYPE_UNKNOWN)
+      return false;
+  }
+  // For structures, unions, and arrays, test if b looks like a partial data-type
+  meta = b->type->getMetatype();
+  if (meta == TYPE_UNKNOWN || meta == TYPE_INT || meta == TYPE_UINT) {
+    return true;
+  }
+  return false;
 }
 
 /// \brief Return \b true if \b this or the given range contains the other.
@@ -270,7 +288,8 @@ ScopeLocal::ScopeLocal(uint8 id,AddrSpace *spc,Funcdata *fd,Architecture *g) : S
 
 {
   space = spc;
-  deepestParamOffset = ~((uintb)0);
+  minParamOffset = ~((uintb)0);
+  maxParamOffset = 0;
   rangeLocked = false;
   stackGrowsNegative = true;
   restrictScope(fd);
@@ -297,12 +316,39 @@ void ScopeLocal::collectNameRecs(void)
 	    // If the "this" pointer points to a class, try to preserve the data-type
 	    // even though the symbol is not preserved.
 	    SymbolEntry *entry = sym->getFirstWholeMap();
-	    typeRecommend.push_back(TypeRecommend(entry->getAddr(),dt));
+	    addTypeRecommendation(entry->getAddr(), dt);
 	  }
 	}
       }
       addRecommendName(sym);	// This deletes the symbol
     }
+  }
+}
+
+/// For any read of the input stack pointer by a non-additive p-code op, assume this constitutes a
+/// a zero offset reference into the stack frame.  Replace the raw Varnode with the standard
+/// spacebase placeholder, PTRSUB(sp,#0), so that the data-type system can treat it as a reference.
+void ScopeLocal::annotateRawStackPtr(void)
+
+{
+  if (!fd->hasTypeRecoveryStarted()) return;
+  Varnode *spVn = fd->findSpacebaseInput(space);
+  if (spVn == (Varnode *)0) return;
+  list<PcodeOp *>::const_iterator iter;
+  vector<PcodeOp *> refOps;
+  for(iter=spVn->beginDescend();iter!=spVn->endDescend();++iter) {
+    PcodeOp *op = *iter;
+    if (op->getEvalType() == PcodeOp::special && !op->isCall()) continue;
+    OpCode opc = op->code();
+    if (opc == CPUI_INT_ADD || opc == CPUI_PTRSUB || opc == CPUI_PTRADD)
+      continue;
+    refOps.push_back(op);
+  }
+  for(int4 i=0;i<refOps.size();++i) {
+    PcodeOp *op = refOps[i];
+    int4 slot = op->getSlot(spVn);
+    PcodeOp *ptrsub = fd->newOpBefore(op,CPUI_PTRSUB,spVn,fd->newConstant(spVn->getSize(),0));
+    fd->opSetInput(op, ptrsub->getOut(), slot);
   }
 }
 
@@ -312,7 +358,8 @@ void ScopeLocal::resetLocalWindow(void)
 
 {
   stackGrowsNegative = fd->getFuncProto().isStackGrowsNegative();
-  deepestParamOffset = stackGrowsNegative ? ~((uintb)0) : 0;
+  minParamOffset = ~(uintb)0;
+  maxParamOffset = 0;
 
   if (rangeLocked) return;
 
@@ -337,27 +384,46 @@ void ScopeLocal::resetLocalWindow(void)
   glb->symboltab->setRange(this,newrange);
 }
 
-void ScopeLocal::saveXml(ostream &s) const
+void ScopeLocal::encode(Encoder &encoder) const
 
 {
-  s << "<localdb";
-  a_v(s,"main",space->getName());
-  a_v_b(s,"lock",rangeLocked);
-  s << ">\n";
-  ScopeInternal::saveXml(s);
-  s << "</localdb>\n";
+  encoder.openElement(ELEM_LOCALDB);
+  encoder.writeSpace(ATTRIB_MAIN, space);
+  encoder.writeBool(ATTRIB_LOCK, rangeLocked);
+  ScopeInternal::encode(encoder);
+  encoder.closeElement(ELEM_LOCALDB);
 }
 
-void ScopeLocal::restoreXml(const Element *el)
+void ScopeLocal::decode(Decoder &decoder)
+
+{
+  ScopeInternal::decode( decoder );
+  collectNameRecs();
+}
+
+void ScopeLocal::decodeWrappingAttributes(Decoder &decoder)
 
 {
   rangeLocked = false;
-  if (xml_readbool(el->getAttributeValue("lock")))
+  if (decoder.readBool(ATTRIB_LOCK))
     rangeLocked = true;
-  space = glb->getSpaceByName(el->getAttributeValue("main"));
-  
-  ScopeInternal::restoreXml( *(el->getChildren().begin()) );
-  collectNameRecs();
+  space = decoder.readSpace(ATTRIB_MAIN);
+}
+
+/// Currently we treat all unmapped Varnodes as not having an alias, unless the Varnode is on the stack
+/// and the location is also used to pass parameters.  This should not be called until the second pass, in
+/// order to give markNotMapped a chance to be called.
+/// Return \b true if the Varnode can be treated as having no aliases.
+/// \param vn is the given Varnode
+/// \return \b true if there are no aliases
+bool ScopeLocal::isUnmappedUnaliased(Varnode *vn) const
+
+{
+  if (vn->getSpace() != space) return false;	// Must be in mapped local (stack) space
+  if (maxParamOffset < minParamOffset) return false;	// If no min/max, then we have no know stack parameters
+  if (vn->getOffset() < minParamOffset || vn->getOffset() > maxParamOffset)
+    return true;
+  return false;
 }
 
 /// The given range can no longer hold a \e mapped local variable. This indicates the range
@@ -377,14 +443,10 @@ void ScopeLocal::markNotMapped(AddrSpace *spc,uintb first,int4 sz,bool parameter
   else if (last > spc->getHighest())
     last = spc->getHighest();
   if (parameter) {		// Everything above parameter
-    if (stackGrowsNegative) {
-      if (first < deepestParamOffset)
-	deepestParamOffset = first;
-    }
-    else {
-      if (first > deepestParamOffset)
-	deepestParamOffset = first;
-    }
+    if (first < minParamOffset)
+      minParamOffset = first;
+    if (last > maxParamOffset)
+      maxParamOffset = last;
   }
   Address addr(space,first);
 				// Remove any symbols under range
@@ -395,7 +457,7 @@ void ScopeLocal::markNotMapped(AddrSpace *spc,uintb first,int4 sz,bool parameter
       // If the symbol and the use are both as parameters
       // this is likely the special case of a shared return call sharing the parameter location
       // of the original function in which case we don't print a warning
-      if ((!parameter) || (sym->getCategory() != 0))
+      if ((!parameter) || (sym->getCategory() != Symbol::function_parameter))
 	fd->warningHeader("Variable defined which should be unmapped: "+sym->getName());
       return;
     }
@@ -428,11 +490,12 @@ string ScopeLocal::buildVariableName(const Address &addr,
 	start = -start;
       }
       else {
-	if (deepestParamOffset + 1 > 1 && stackGrowsNegative == (addr.getOffset() < deepestParamOffset)) {
+	if ((minParamOffset < maxParamOffset) &&
+	    (stackGrowsNegative ? (addr.getOffset() < minParamOffset) : (addr.getOffset() > maxParamOffset))) {
 	  s << 'Y';		// Indicate unusual region of stack
 	}
       }
-      s << dec << start;
+      s << '_' << hex << start;
       return makeNameUnique(s.str());
     }
   }
@@ -722,12 +785,12 @@ MapState::MapState(AddrSpace *spc,const RangeList &rn,
 {
   spaceid = spc;
   defaultType = dt;
-  set<Range>::const_iterator iter;
-  for(iter=pm.begin();iter!=pm.end();++iter) {
-    AddrSpace *spc = (*iter).getSpace();
-    uintb first = (*iter).getFirst();
-    uintb last = (*iter).getLast();
-    range.removeRange(spc,first,last); // Clear possible input symbols
+  set<Range>::const_iterator pmiter;
+  for(pmiter=pm.begin();pmiter!=pm.end();++pmiter) {
+    AddrSpace *pmSpc = (*pmiter).getSpace();
+    uintb first = (*pmiter).getFirst();
+    uintb last = (*pmiter).getLast();
+    range.removeRange(pmSpc,first,last); // Clear possible input symbols
   }
 #ifdef OPACTION_DEBUG
   debugon = false;
@@ -737,9 +800,9 @@ MapState::MapState(AddrSpace *spc,const RangeList &rn,
 MapState::~MapState(void)
 
 {
-  vector<RangeHint *>::iterator iter;
-  for(iter=maplist.begin();iter!=maplist.end();++iter)
-    delete *iter;
+  vector<RangeHint *>::iterator riter;
+  for(riter=maplist.begin();riter!=maplist.end();++riter)
+    delete *riter;
 }
 
 /// A specific range of bytes is described for the hint, given a starting offset and other information.
@@ -760,8 +823,8 @@ void MapState::addRange(uintb st,Datatype *ct,uint4 fl,RangeHint::RangeType rt,i
   intb sst = (intb)AddrSpace::byteToAddress(st,spaceid->getWordSize());
   sign_extend(sst,spaceid->getAddrSize()*8-1);
   sst = (intb)AddrSpace::addressToByte(sst,spaceid->getWordSize());
-  RangeHint *range = new RangeHint(st,sz,sst,ct,fl,rt,hi);
-  maplist.push_back(range);
+  RangeHint *newRange = new RangeHint(st,sz,sst,ct,fl,rt,hi);
+  maplist.push_back(newRange);
 #ifdef OPACTION_DEBUG
   if (debugon) {
     ostringstream s;
@@ -814,7 +877,7 @@ void MapState::reconcileDatatypes(void)
   maplist.swap(newList);
 }
 
-/// The given LoadGuard, which may be a LOAD or STORE is converted into an appropriate
+/// The given LoadGuard, which may be a LOAD or STORE, is converted into an appropriate
 /// RangeHint, attempting to make use of any data-type or index information.
 /// \param guard is the given LoadGuard
 /// \param opc is the expected op-code (CPUI_LOAD or CPUI_STORE)
@@ -825,7 +888,7 @@ void MapState::addGuard(const LoadGuard &guard,OpCode opc,TypeFactory *typeFacto
   if (!guard.isValid(opc)) return;
   int4 step = guard.getStep();
   if (step == 0) return;		// No definitive sign of array access
-  Datatype *ct = guard.getOp()->getIn(1)->getType();
+  Datatype *ct = guard.getOp()->getIn(1)->getTypeReadFacing(guard.getOp());
   if (ct->getMetatype() == TYPE_PTR) {
     ct = ((TypePointer *) ct)->getPtrTo();
     while (ct->getMetatype() == TYPE_ARRAY)
@@ -863,14 +926,14 @@ void MapState::addGuard(const LoadGuard &guard,OpCode opc,TypeFactory *typeFacto
 void MapState::gatherSymbols(const EntryMap *rangemap)
 
 {
-  list<SymbolEntry>::const_iterator iter;
+  list<SymbolEntry>::const_iterator riter;
   Symbol *sym;
   if (rangemap == (EntryMap *)0) return;
-  for(iter=rangemap->begin_list();iter!=rangemap->end_list();++iter) {
-    sym = (*iter).getSymbol();
+  for(riter=rangemap->begin_list();riter!=rangemap->end_list();++riter) {
+    sym = (*riter).getSymbol();
     if (sym == (Symbol *)0) continue;
     //    if ((*iter).isPiece()) continue;     // This should probably never happen
-    uintb start = (*iter).getAddr().getOffset();
+    uintb start = (*riter).getAddr().getOffset();
     Datatype *ct = sym->getType();
     addRange(start,ct,sym->getFlags(),RangeHint::fixed,-1);
   }
@@ -890,8 +953,8 @@ bool MapState::initialize(void)
   sign_extend(sst,spaceid->getAddrSize()*8-1);
   sst = (intb)AddrSpace::addressToByte(sst,spaceid->getWordSize());
   // Add extra range to bound any final open entry
-  RangeHint *range = new RangeHint(high,1,sst,defaultType,0,RangeHint::endpoint,-2);
-  maplist.push_back(range);
+  RangeHint *termRange = new RangeHint(high,1,sst,defaultType,0,RangeHint::endpoint,-2);
+  maplist.push_back(termRange);
 
   stable_sort(maplist.begin(),maplist.end(),RangeHint::compareRanges);
   reconcileDatatypes();
@@ -906,12 +969,12 @@ bool MapState::initialize(void)
 void MapState::gatherVarnodes(const Funcdata &fd)
 
 {
-  VarnodeLocSet::const_iterator iter,iterend;
+  VarnodeLocSet::const_iterator riter,iterend;
   Varnode *vn;
-  iter = fd.beginLoc(spaceid);
+  riter = fd.beginLoc(spaceid);
   iterend = fd.endLoc(spaceid);
-  while(iter != iterend) {
-    vn = *iter++;
+  while(riter != iterend) {
+    vn = *riter++;
     if (vn->isFree()) continue;
     uintb start = vn->getOffset();
     Datatype *ct = vn->getType();
@@ -929,13 +992,13 @@ void MapState::gatherHighs(const Funcdata &fd)
 
 {
   vector<HighVariable *> varvec;
-  VarnodeLocSet::const_iterator iter,iterend;
+  VarnodeLocSet::const_iterator riter,iterend;
   Varnode *vn;
   HighVariable *high;
-  iter = fd.beginLoc(spaceid);
+  riter = fd.beginLoc(spaceid);
   iterend = fd.endLoc(spaceid);
-  while(iter != iterend) {
-    vn = *iter++;
+  while(riter != iterend) {
+    vn = *riter++;
     high = vn->getHigh();
     if (high == (HighVariable *)0) continue;
     if (high->isMark()) continue;
@@ -986,12 +1049,12 @@ void MapState::gatherOpen(const Funcdata &fd)
 
   TypeFactory *typeFactory = fd.getArch()->types;
   const list<LoadGuard> &loadGuard( fd.getLoadGuards() );
-  for(list<LoadGuard>::const_iterator iter=loadGuard.begin();iter!=loadGuard.end();++iter)
-    addGuard(*iter,CPUI_LOAD,typeFactory);
+  for(list<LoadGuard>::const_iterator giter=loadGuard.begin();giter!=loadGuard.end();++giter)
+    addGuard(*giter,CPUI_LOAD,typeFactory);
 
   const list<LoadGuard> &storeGuard( fd.getStoreGuards() );
-  for(list<LoadGuard>::const_iterator iter=storeGuard.begin();iter!=storeGuard.end();++iter)
-    addGuard(*iter,CPUI_STORE,typeFactory);
+  for(list<LoadGuard>::const_iterator siter=storeGuard.begin();siter!=storeGuard.end();++siter)
+    addGuard(*siter,CPUI_STORE,typeFactory);
 }
 
 /// Define stack Symbols based on Varnodes.
@@ -1024,6 +1087,8 @@ void ScopeLocal::restructureVarnode(bool aliasyes)
   state.sortAlias();
   if (aliasyes)
     markUnaliased(state.getAlias());
+  if (!state.getAlias().empty() && state.getAlias()[0] == 0)	// If a zero offset use of the stack pointer exists
+    annotateRawStackPtr();					// Add a special placeholder PTRSUB
 }
 
 /// Define stack Symbols based on HighVariables.
@@ -1157,7 +1222,7 @@ void ScopeLocal::markUnaliased(const vector<uintb> &alias)
 void ScopeLocal::fakeInputSymbols(void)
 
 {
-  int4 lockedinputs = getCategorySize(0);
+  int4 lockedinputs = getCategorySize(Symbol::function_parameter);
   VarnodeDefSet::const_iterator iter,enditer;
 
   iter = fd->beginDef(Varnode::input);
@@ -1194,7 +1259,7 @@ void ScopeLocal::fakeInputSymbols(void)
 	uint4 vflags = 0;
 	SymbolEntry *entry = queryProperties(vn->getAddr(),vn->getSize(),usepoint,vflags);
 	if (entry != (SymbolEntry *)0) {
-	  if (entry->getSymbol()->getCategory()==0)
+	  if (entry->getSymbol()->getCategory()==Symbol::function_parameter)
 	    continue;		// Found a matching symbol
 	}
       }
@@ -1346,6 +1411,16 @@ void ScopeLocal::applyTypeRecommendations(void)
     if (vn != (Varnode *)0)
       vn->updateType(dt, true, false);
   }
+}
+
+/// Associate a data-type with a particular storage address. If we see an input Varnode at this address,
+/// if no other info is available, the given data-type is applied.
+/// \param addr is the storage address
+/// \param dt is the given data-type
+void ScopeLocal::addTypeRecommendation(const Address &addr,Datatype *dt)
+
+{
+  typeRecommend.push_back(TypeRecommend(addr,dt));
 }
 
 /// The symbol is stored as a name recommendation and then removed from the scope.

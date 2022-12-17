@@ -18,17 +18,20 @@ package agent.gdb.model.impl;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 
 import agent.gdb.manager.breakpoint.GdbBreakpointLocation;
 import agent.gdb.manager.parsing.GdbCValueParser;
 import agent.gdb.manager.parsing.GdbParsingUtils.GdbParseError;
 import generic.Unique;
+import ghidra.async.AsyncUtils;
 import ghidra.dbg.agent.DefaultTargetObject;
 import ghidra.dbg.target.TargetBreakpointLocation;
 import ghidra.dbg.target.TargetObject;
 import ghidra.dbg.target.schema.*;
 import ghidra.dbg.util.PathUtils;
-import ghidra.program.model.address.Address;
+import ghidra.program.model.address.*;
+import ghidra.util.Msg;
 
 @TargetObjectSchemaInfo(
 	name = "BreakpointLocation",
@@ -39,6 +42,10 @@ import ghidra.program.model.address.Address;
 public class GdbModelTargetBreakpointLocation
 		extends DefaultTargetObject<TargetObject, GdbModelTargetBreakpointSpec>
 		implements TargetBreakpointLocation {
+
+	/** prefix used in GDB's watchpoint specs for static locations */
+	protected static final String LOC_PREFIX = "-location";
+
 	protected static String indexLocation(GdbBreakpointLocation loc) {
 		return PathUtils.makeIndex(loc.getSub());
 	}
@@ -50,8 +57,7 @@ public class GdbModelTargetBreakpointLocation
 	protected final GdbModelImpl impl;
 	protected final GdbBreakpointLocation loc;
 
-	protected Address address;
-	protected Integer length;
+	protected AddressRange range;
 	protected String display;
 
 	public GdbModelTargetBreakpointLocation(GdbModelTargetBreakpointSpec spec,
@@ -62,8 +68,8 @@ public class GdbModelTargetBreakpointLocation
 		impl.addModelObject(loc, this);
 
 		if (!spec.info.getType().isWatchpoint()) {
-			this.address = doGetAddress();
-			this.length = 1;
+			Address addr = impl.space.getAddress(loc.addrAsLong());
+			this.range = new AddressRangeImpl(addr, addr);
 			doChangeAttributes("Initialized");
 		}
 	}
@@ -71,8 +77,7 @@ public class GdbModelTargetBreakpointLocation
 	protected void doChangeAttributes(String reason) {
 		this.changeAttributes(List.of(), Map.of(
 			SPEC_ATTRIBUTE_NAME, parent,
-			ADDRESS_ATTRIBUTE_NAME, address,
-			LENGTH_ATTRIBUTE_NAME, length,
+			RANGE_ATTRIBUTE_NAME, range,
 			DISPLAY_ATTRIBUTE_NAME, display = computeDisplay()),
 			reason);
 		placeLocations();
@@ -91,14 +96,11 @@ public class GdbModelTargetBreakpointLocation
 	protected CompletableFuture<Void> initWpt() {
 		assert loc.getAddr() == null;
 		String what = parent.info.getWhat();
-		if (!what.startsWith(GdbBreakpointLocation.WATCHPOINT_LOCATION_PREFIX)) {
-			throw new AssertionError("non-location location");
-		}
-		String exp = what.substring(GdbBreakpointLocation.WATCHPOINT_LOCATION_PREFIX.length());
+		String exp = what.startsWith(LOC_PREFIX) ? what.substring(LOC_PREFIX.length()) : what;
 		int iid = Unique.assertOne(loc.getInferiorIds());
 		GdbModelTargetInferior inf = impl.session.inferiors.getTargetInferior(iid);
 		String addrSizeExp = String.format("{(long long)&(%s), (long long)sizeof(%s)}", exp, exp);
-		return inf.inferior.evaluate(addrSizeExp).thenAccept(result -> {
+		return inf.inferior.evaluate(addrSizeExp).thenApply(result -> {
 			List<Long> vals;
 			try {
 				vals = GdbCValueParser.parseArray(result).expectLongs();
@@ -110,23 +112,42 @@ public class GdbModelTargetBreakpointLocation
 				throw new AssertionError("Unexpected result count: " + result);
 			}
 
-			address = impl.space.getAddress(vals.get(0));
-			length = vals.get(1).intValue();
+			range = makeRange(impl.space.getAddress(vals.get(0)), vals.get(1).intValue());
 			doChangeAttributes("Initialized");
-		});
+			return AsyncUtils.NIL;
+		}).exceptionally(ex -> {
+			CompletableFuture<String> secondTry =
+				inf.inferior.evaluate(String.format("(long long)&(%s)", exp));
+			return secondTry.thenAccept(result -> {
+				long addr;
+				try {
+					addr = GdbCValueParser.parseValue(result).expectLong();
+				}
+				catch (GdbParseError e) {
+					throw new AssertionError("Unexpected result type: " + result, e);
+				}
+				range = makeRange(impl.space.getAddress(addr), 1);
+				doChangeAttributes("Initialized, but defaulted length=1");
+			}).exceptionally(ex2 -> {
+				Msg.warn(this,
+					"Could not evaluated breakpoint location and/or size: " + ex2);
+				Address addr = impl.space.getAddress(0);
+				range = new AddressRangeImpl(addr, addr);
+				doChangeAttributes("Defaulted for eval/parse error");
+				return null;
+			});
+		}).thenCompose(Function.identity());
 	}
 
 	protected String computeDisplay() {
-		return String.format("%d.%d %s", parent.info.getNumber(), loc.getSub(), address);
+		return String.format("%d.%d %s", parent.info.getNumber(), loc.getSub(),
+			range.getMinAddress());
 	}
 
-	protected Address doGetAddress() {
-		return impl.space.getAddress(loc.addrAsLong());
-	}
-
-	@Override
-	public Integer getLength() {
-		return length;
+	// Avoid the checked exception on new AddressRangeImpl(min, length)
+	protected static AddressRange makeRange(Address min, int length) {
+		Address max = min.add(length - 1);
+		return new AddressRangeImpl(min, max);
 	}
 
 	protected void placeLocations() {
@@ -151,6 +172,11 @@ public class GdbModelTargetBreakpointLocation
 		for (GdbModelTargetInferior inf : impl.session.inferiors.getCachedElements().values()) {
 			inf.removeBreakpointLocation(this);
 		}
+	}
+
+	@Override
+	public AddressRange getRange() {
+		return range;
 	}
 
 	@Override

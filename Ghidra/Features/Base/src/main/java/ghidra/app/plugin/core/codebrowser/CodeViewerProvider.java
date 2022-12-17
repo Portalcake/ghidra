@@ -20,6 +20,7 @@ import java.awt.Point;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.Transferable;
 import java.awt.dnd.*;
+import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.*;
 
@@ -100,6 +101,8 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 	private FormatManager formatMgr;
 	private FieldPanelCoordinator coordinator;
 
+	private FocusingMouseListener focusingMouseListener;
+
 	private CodeBrowserClipboardProvider codeViewerClipboardProvider;
 	private ClipboardService clipboardService;
 
@@ -158,13 +161,17 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 		listingPanel.setStringSelectionListener(this);
 		listingPanel.addIndexMapChangeListener(this);
 
-		codeViewerClipboardProvider = new CodeBrowserClipboardProvider(tool, this);
+		codeViewerClipboardProvider = newClipboardProvider();
 		tool.addPopupActionProvider(this);
+	}
+
+	protected CodeBrowserClipboardProvider newClipboardProvider() {
+		return new CodeBrowserClipboardProvider(tool, this);
 	}
 
 	@Override
 	public boolean isSnapshot() {
-		// we are a snapshot when we are 'disconnected' 
+		// we are a snapshot when we are 'disconnected'
 		return !isConnected();
 	}
 
@@ -172,6 +179,17 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 	 * @return true if this listing is backed by a dynamic data source (e.g., debugger)
 	 */
 	public boolean isDynamicListing() {
+		return false;
+	}
+
+	/**
+	 * TODO: Remove or rename this to something that accommodates redirecting writes, e.g., to a
+	 * debug target process, particularly for assembly, which may involve code unit modification
+	 * after a successful write, reported asynchronously :/ .
+	 *
+	 * @return true if this listing represents a read-only view
+	 */
+	public boolean isReadOnly() {
 		return false;
 	}
 
@@ -509,7 +527,10 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	@Override
-	public void programSelectionChanged(ProgramSelection selection) {
+	public void programSelectionChanged(ProgramSelection selection, EventTrigger trigger) {
+		if (trigger != EventTrigger.GUI_ACTION) {
+			return;
+		}
 		doSetSelection(selection);
 	}
 
@@ -690,6 +711,16 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 		return true;
 	}
 
+	/**
+	 * Extension point to specify titles when dual panels are active
+	 *
+	 * @param panelProgram the program assigned to the panel whose title is requested
+	 * @return the title of the panel for the given program
+	 */
+	protected String computePanelTitle(Program panelProgram) {
+		return panelProgram.getDomainFile().toString();
+	}
+
 	public void setPanel(ListingPanel lp) {
 		Program myProgram = listingPanel.getListingModel().getProgram();
 		Program otherProgram = lp.getListingModel().getProgram();
@@ -697,10 +728,10 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 		String otherName = myName;
 
 		if (myProgram != null) {
-			myName = myProgram.getDomainFile().toString();
+			myName = computePanelTitle(myProgram);
 		}
 		if (otherProgram != null) {
-			otherName = otherProgram.getDomainFile().toString();
+			otherName = computePanelTitle(otherProgram);
 		}
 		if (otherPanel != null) {
 			removeHoverServices(otherPanel);
@@ -729,7 +760,7 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 	public void clearPanel() {
 		if (otherPanel != null) {
 			removeHoverServices(otherPanel);
-			programSelectionChanged(new ProgramSelection());
+			programSelectionChanged(new ProgramSelection(), EventTrigger.GUI_ACTION);
 			FieldPanel fp = listingPanel.getFieldPanel();
 			FieldLocation loc = fp.getCursorLocation();
 			ViewerPosition vp = fp.getViewerPosition();
@@ -968,11 +999,68 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 		return null;
 	}
 
+	/**
+	 * Add the {@link AddressSetDisplayListener} to the listing panel
+	 *
+	 * @param listener the listener to add
+	 */
+	public void addDisplayListener(AddressSetDisplayListener listener) {
+		listingPanel.addDisplayListener(listener);
+	}
+
+	/**
+	 * Remove the {@link AddressSetDisplayListener} from the listing panel
+	 *
+	 * @param listener the listener to remove
+	 */
+	public void removeDisplayListener(AddressSetDisplayListener listener) {
+		listingPanel.removeDisplayListener(listener);
+	}
+
+	private synchronized void createFocusingMouseListener() {
+		if (focusingMouseListener == null) {
+			focusingMouseListener = new FocusingMouseListener();
+		}
+	}
+
+	public void addOverviewProvider(OverviewProvider overviewProvider) {
+		createFocusingMouseListener();
+		JComponent component = overviewProvider.getComponent();
+
+		// just in case we get repeated calls
+		component.removeMouseListener(focusingMouseListener);
+		component.addMouseListener(focusingMouseListener);
+		overviewProvider.setNavigatable(this);
+		getListingPanel().addOverviewProvider(overviewProvider);
+	}
+
+	public void addMarginProvider(MarginProvider marginProvider) {
+		createFocusingMouseListener();
+		JComponent component = marginProvider.getComponent();
+
+		// just in case we get repeated calls
+		component.removeMouseListener(focusingMouseListener);
+		component.addMouseListener(focusingMouseListener);
+		getListingPanel().addMarginProvider(marginProvider);
+	}
+
+	public void removeOverviewProvider(OverviewProvider overviewProvider) {
+		JComponent component = overviewProvider.getComponent();
+		component.removeMouseListener(focusingMouseListener);
+		getListingPanel().removeOverviewProvider(overviewProvider);
+	}
+
+	public void removeMarginProvider(MarginProvider marginProvider) {
+		JComponent component = marginProvider.getComponent();
+		component.removeMouseListener(focusingMouseListener);
+		getListingPanel().removeMarginProvider(marginProvider);
+	}
+
 //==================================================================================================
 // Inner Classes
 //==================================================================================================
 
-	class ToggleHeaderAction extends ToggleDockingAction {
+	private class ToggleHeaderAction extends ToggleDockingAction {
 		ToggleHeaderAction() {
 			super("Toggle Header", plugin.getName());
 			setEnabled(true);
@@ -1050,21 +1138,10 @@ public class CodeViewerProvider extends NavigatableComponentProviderAdapter
 		}
 	}
 
-	/**
-	 * Add the ListingDisplayListener to the listing panel
-	 * 
-	 * @param listener the listener to add
-	 */
-	public void addListingDisplayListener(ListingDisplayListener listener) {
-		listingPanel.addListingDisplayListener(listener);
-	}
-
-	/**
-	 * Remove the ListingDisplayListener from the listing panel
-	 * 
-	 * @param listener the listener to remove
-	 */
-	public void removeListingDisplayListener(ListingDisplayListener listener) {
-		listingPanel.removeListingDisplayListener(listener);
+	private class FocusingMouseListener extends MouseAdapter {
+		@Override
+		public void mousePressed(MouseEvent e) {
+			getListingPanel().getFieldPanel().requestFocus();
+		}
 	}
 }

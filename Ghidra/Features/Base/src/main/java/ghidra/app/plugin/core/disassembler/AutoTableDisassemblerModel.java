@@ -16,11 +16,13 @@
 package ghidra.app.plugin.core.disassembler;
 
 import java.util.HashMap;
+import java.util.Map;
 
 import docking.widgets.table.DiscoverableTableUtils;
 import docking.widgets.table.TableColumnDescriptor;
 import ghidra.framework.plugintool.ServiceProvider;
 import ghidra.program.model.address.*;
+import ghidra.program.util.ProgramSelection;
 import ghidra.util.datastruct.Accumulator;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.table.AddressBasedTableModel;
@@ -36,12 +38,11 @@ class AutoTableDisassemblerModel extends AddressBasedTableModel<AddressTable> {
 	private int alignment;
 	private int skipAmount;
 	private boolean shiftedAddresses;
-	private HashMap<Address, AddressTable> map;
+	private AddressTableStorage storage = new NullStorage();
 
 	private AutoTableDisassemblerPlugin plugin;
 
 	AutoTableDisassemblerModel(ServiceProvider sp, AutoTableDisassemblerPlugin plugin) {
-
 		super(MODEL_NAME, sp, null, TaskMonitor.DUMMY, true);
 		this.plugin = plugin;
 	}
@@ -60,30 +61,37 @@ class AutoTableDisassemblerModel extends AddressBasedTableModel<AddressTable> {
 		return descriptor;
 	}
 
+	@Override
+	public void dispose() {
+		super.dispose();
+		storage = new NullStorage();
+	}
+
 	boolean containsKey(Address addr) {
-		if (map == null) {
-			return (get(addr) != null);
-		}
-		return map.containsKey(addr);
+		return storage.contains(addr);
 	}
 
 	AddressTable get(Address addr) {
-		// if map null, then map not initialized, just get it with non-cancelable task monitor
-		if (map == null) {
-			return get(addr, TaskMonitor.DUMMY);
-		}
-		return map.get(addr);
+		return storage.get(addr);
 	}
 
 	private AddressTable get(Address addr, TaskMonitor monitor) {
-		AddressTable entry;
-
-		entry = AddressTable.getEntry(getProgram(), addr, monitor, false, minimumTableSize,
+		return AddressTable.getEntry(getProgram(), addr, monitor, false, minimumTableSize,
 			alignment, skipAmount, 0, shiftedAddresses, true, false);
-		if (map != null) {
-			map.put(addr, entry);
+	}
+
+	@Override
+	public ProgramSelection getProgramSelection(int[] rows) {
+		AddressSet set = new AddressSet();
+		for (int selectedRow : rows) {
+			Address selectedAddress = getAddress(selectedRow);
+			AddressTable addrTab = get(selectedAddress);
+			if (addrTab != null) {
+				set.addRange(selectedAddress,
+					selectedAddress.add(addrTab.getByteLength() - 1));
+			}
 		}
-		return entry;
+		return new ProgramSelection(set);
 	}
 
 	@Override
@@ -99,7 +107,7 @@ class AutoTableDisassemblerModel extends AddressBasedTableModel<AddressTable> {
 
 		// iterate over addresses in the selected module
 		AddressIterator addrIter = addresses.getAddresses(true);
-		map = new HashMap<>();
+		storage = new MapStorage();
 		while (addrIter.hasNext()) {
 			++addrCount;
 			monitor.checkCanceled();
@@ -108,6 +116,7 @@ class AutoTableDisassemblerModel extends AddressBasedTableModel<AddressTable> {
 
 			AddressTable tableEntry = get(start, monitor);
 			if (tableEntry != null) {
+				storage.put(start, tableEntry);
 				accumulator.add(tableEntry);
 
 				// jump the address iterator by the size of the table entry
@@ -142,4 +151,50 @@ class AutoTableDisassemblerModel extends AddressBasedTableModel<AddressTable> {
 		return table.getNumberAddressEntries();
 	}
 
+	private interface AddressTableStorage {
+		void put(Address address, AddressTable table);
+
+		AddressTable get(Address address);
+
+		boolean contains(Address address);
+	}
+
+	private class NullStorage implements AddressTableStorage {
+
+		@Override
+		public void put(Address address, AddressTable table) {
+			// stub
+		}
+
+		@Override
+		public AddressTable get(Address address) {
+			return null; // stub
+		}
+
+		@Override
+		public boolean contains(Address address) {
+			return false; // stub
+		}
+	}
+
+	private class MapStorage implements AddressTableStorage {
+
+		private Map<Address, AddressTable> map = new HashMap<>();
+
+		@Override
+		public void put(Address address, AddressTable table) {
+			map.put(address, table);
+		}
+
+		@Override
+		public AddressTable get(Address address) {
+			return map.get(address);
+		}
+
+		@Override
+		public boolean contains(Address address) {
+			return map.containsKey(address);
+		}
+
+	}
 }

@@ -25,10 +25,12 @@ eclipse.project.name = 'Features Graph FunctionGraph'
 
 
 dependencies {
+
 	api project(":Base")
-   
-   	testImplementation "org.jmockit:jmockit:1.44"
-    
+
+	api project(":GraphServices")
+       
 	helpPath project(path: ":Base", configuration: 'helpPath')
 }
+
 

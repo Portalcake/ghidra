@@ -15,21 +15,24 @@
  */
 package ghidra.app.util.bin.format.dwarf4;
 
-import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
 
 import ghidra.app.util.bin.BinaryReader;
 import ghidra.app.util.bin.format.dwarf4.attribs.DWARFAttributeValue;
 import ghidra.app.util.bin.format.dwarf4.attribs.DWARFNumericAttribute;
 import ghidra.app.util.bin.format.dwarf4.encoding.DWARFAttribute;
 import ghidra.app.util.bin.format.dwarf4.encoding.DWARFTag;
+import ghidra.app.util.bin.format.dwarf4.expression.DWARFExpressionException;
 import ghidra.app.util.bin.format.dwarf4.next.DWARFProgram;
 import ghidra.program.model.data.DataType;
 import ghidra.program.model.data.DataTypeComponent;
+import ghidra.program.model.listing.Program;
 import ghidra.program.model.symbol.SymbolType;
 import ghidra.util.Conv;
 
@@ -324,6 +327,47 @@ public class DWARFUtil {
 	}
 
 	/**
+	 * Creates a fingerprint of the layout of an (anonymous) structure using its
+	 * size, number of members, and the hashcode of the member field names.
+	 * 
+	 * @param diea struct/union/class
+	 * @return formatted string, example "80_5_73dc6de9" (80 bytes, 5 fields, hex hash of field names) 
+	 */
+	public static String getStructLayoutFingerprint(DIEAggregate diea) {
+		long structSize = diea.getUnsignedLong(DWARFAttribute.DW_AT_byte_size, 0);
+		int memberCount = 0;
+		List<String> memberNames = new ArrayList<>();
+		for (DebugInfoEntry childEntry : diea.getHeadFragment().getChildren()) {
+			if (!(childEntry.getTag() == DWARFTag.DW_TAG_member ||
+				childEntry.getTag() == DWARFTag.DW_TAG_inheritance)) {
+				continue;
+			}
+			DIEAggregate childDIEA = diea.getProgram().getAggregate(childEntry);
+			if (childDIEA.hasAttribute(DWARFAttribute.DW_AT_external)) {
+				continue;
+			}
+			memberCount++;
+
+			String memberName = childDIEA.getName();
+			int memberOffset = 0;
+			try {
+				memberOffset =
+					childDIEA.parseDataMemberOffset(DWARFAttribute.DW_AT_data_member_location, 0);
+			}
+			catch (DWARFExpressionException | IOException e) {
+				// ignore, leave as default value 0
+			}
+			if (memberName == null) {
+				memberName = "UNNAMED_MEMBER_" + memberCount;
+			}
+			memberName = String.format("%04x_%s", memberOffset, memberName);
+			memberNames.add(memberName);
+		}
+		Collections.sort(memberNames);	// "hexoffset_name"
+		return String.format("%d_%d_%08x", structSize, memberCount, memberNames.hashCode());
+	}
+
+	/**
 	 * Create a name for a lexical block, with "_" separated numbers indicating nesting
 	 * information of the lexical block.
 	 *
@@ -565,6 +609,66 @@ public class DWARFUtil {
 		List<DIEAggregate> referers =
 			diea.getProgram().getTypeReferers(diea, DWARFTag.DW_TAG_typedef);
 		return (referers.size() == 1) ? referers.get(0) : null;
+	}
+
+	public static class LengthResult {
+		public final long length;
+		public final int format;	// either DWARF_32 or DWARF_64
+
+		private LengthResult(long length, int format) {
+			this.length = length;
+			this.format = format;
+		}
+	}
+
+	/**
+	 * Read a variable-length length value from the stream.
+	 * <p>
+	 * 
+	 * @param reader {@link BinaryReader} stream to read from
+	 * @param program Ghidra {@link Program} 
+	 * @return new {@link LengthResult}, never null; length == 0 should be checked for and treated
+	 * specially
+	 * @throws IOException if io error
+	 * @throws DWARFException if invalid values
+	 */
+	public static LengthResult readLength(BinaryReader reader, Program program)
+			throws IOException, DWARFException {
+		long length = reader.readNextUnsignedInt();
+		int format;
+
+		if (length == 0xffffffffL) {
+			// Length of 0xffffffff implies 64-bit DWARF format
+			// Mostly untested as there is no easy way to force the compiler
+			// to generate this
+			length = reader.readNextLong();
+			format = DWARFCompilationUnit.DWARF_64;
+		}
+		else if (length >= 0xfffffff0L) {
+			// Length of 0xfffffff0 or greater is reserved for DWARF
+			throw new DWARFException("Reserved DWARF length value: " + Long.toHexString(length) +
+				". Unknown extension.");
+		}
+		else if (length == 0) {
+			// Test for special case of weird BE MIPS 64bit length value.
+			// Instead of following DWARF std (a few lines above with length == MAX_INT),
+			// it writes a raw 64bit long (BE). The upper 32 bits (already read as length) will 
+			// always be 0 since super-large binaries from that system weren't really possible.
+			// The next 32 bits will be the remainder of the value.
+			if ( reader.isBigEndian() && program.getDefaultPointerSize() == 8) {
+				length = reader.readNextUnsignedInt();
+				format = DWARFCompilationUnit.DWARF_64;
+			}
+			else {
+				// length 0 signals an error to caller
+				format = DWARFCompilationUnit.DWARF_32; // doesn't matter
+			}
+		}
+		else {
+			format = DWARFCompilationUnit.DWARF_32;
+		}
+
+		return new LengthResult(length, format);
 	}
 
 }

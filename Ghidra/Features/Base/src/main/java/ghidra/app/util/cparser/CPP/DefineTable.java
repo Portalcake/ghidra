@@ -22,18 +22,22 @@ import ghidra.app.util.cparser.CPP.PreProcessor.PPToken;
 import ghidra.program.model.data.*;
 import ghidra.program.util.AddressEvaluator;
 import ghidra.util.Msg;
-import ghidra.util.NumericUtilities;
 
 /**
  * 
  */
 public class DefineTable {
+	private static final String VARARG_ELLIPSIS = "...";
+
+	private static final int ARBITRARY_MAX_REPLACEMENTS = 900000;
+
 	// Hastable for storing #defs
 	Hashtable<String, PPToken> defs = new Hashtable<String, PPToken>();
 
 	// Hastable for storing #define macro args (substitution list)
 	Hashtable<String, Vector<PPToken>> args = new Hashtable<String, Vector<PPToken>>();
 
+	// Multi-level hashtable with different types of keys and values
 	Hashtable lookupTable = new Hashtable();
 
 	private final static String VALUE = "value";
@@ -73,7 +77,7 @@ public class DefineTable {
 
 		while (findTable != null && pos < buf.length()) {
 			char ch = buf.charAt(pos++);
-			Character chObj = new Character(ch);
+			Character chObj = ch;
 
 			findTable = (Hashtable) findTable.get(chObj);
 
@@ -105,7 +109,7 @@ public class DefineTable {
 		int len = string.length();
 		while (pos < len) {
 			char ch = string.charAt(pos++);
-			chObj = new Character(ch);
+			chObj = ch;
 
 			Hashtable node = (Hashtable) findTable.get(chObj);
 
@@ -113,7 +117,8 @@ public class DefineTable {
 				node = new Hashtable();
 				findTable.put(chObj, node);
 				findTable = node;
-			} else {
+			}
+			else {
 				findTable = node;
 			}
 		}
@@ -166,7 +171,7 @@ public class DefineTable {
 		int len = string.length();
 		while (pos < len) {
 			char ch = string.charAt(pos++);
-			chObj = new Character(ch);
+			chObj = Character.valueOf(ch);
 
 			findTable = (Hashtable) findTable.get(chObj);
 
@@ -267,134 +272,105 @@ public class DefineTable {
 	 * return a string with all the macros substitute starting at pos in the input string.
 	 * @param image string to expand
 	 * @param pos position within string to start expanding
-	 * @return
+	 * @return string with all substitutions applied
 	 */
 	private String macroSub(String image, int pos, ArrayList<String> sublist) {
 		int replaceCount = 0;
-		
+
 		StringBuffer buf = new StringBuffer(image);
-		
-		// don't replace an infinite number of times.
-		//HashMap<String,Integer> lastReplStrings = new HashMap<String,Integer>();
-		while (pos < buf.length() && replaceCount < 900000) {
+		int lastReplPos = pos;
+
+		// don't replace an infinite number of times.  Fail safe for possible ininite loop
+		while (pos < buf.length() && replaceCount < ARBITRARY_MAX_REPLACEMENTS) {
+			// clear list of used macros when move past replacement area
+			if (pos == lastReplPos) {
+				sublist = new ArrayList<String>(); // ok to clear list of used macro names
+			}
 			String defName = getDefineAt(buf, pos);
-			if (shouldReplace(buf,defName,pos)) {
+			if (shouldReplace(buf, defName, pos)) {
 				// stop recursion on the same replacement string
-//				if (lastReplStrings.containsKey(defName)) {
-//					int lastpos = lastReplStrings.get(defName);
-//					Vector<PPToken> argv = getArgs(defName);
-//					// if it has no args, don't replace already replaced.
-//					if (argv == null && pos < lastpos) {
-//						System.out.println("Already did : " + defName);
-//						System.out.println("    No repl at " + pos + " lastpos " + lastpos + " : " + buf);
-//						pos++;
-//						continue;
-//					}
-//					lastReplStrings.remove(defName);
-//				}
-				int newpos = replace(buf, defName, pos, sublist);
-				// is there a replacement string
-				if (newpos == -1) {
+				int replPos = replace(buf, defName, pos, sublist);
+
+				if (replPos == -1) {
+					// if no replacement string, move on
 					pos++;
-				} else {
-					//System.err.println(" replace " + defName + " with " + buf.substring(pos,newpos));
-					//lastReplStrings.put(defName,pos + defName.length());
-					pos = newpos;
+				}
+				else {
+					// replaced text, update the last place a replacement was made
+					lastReplPos = replPos;
 					replaceCount++;
 				}
-			} else {
+			}
+			else {
 				pos++;
 			}
 		}
-		if (replaceCount >= 100000) {
+		if (replaceCount >= ARBITRARY_MAX_REPLACEMENTS) {
 			System.err.println(" replace " + image + " hit limit");
 		}
 		return buf.toString();
 	}
 
-	
 	private boolean shouldReplace(StringBuffer buf, String defName, int pos) {
 		if (defName == null) {
 			return false;
 		}
-		
-		//String nextRepl = "";
+
 		int currIndex = buf.indexOf(defName, pos);
-		if (currIndex < 0)
+		if (currIndex < 0) {
 			return false; // nothing to replace
+		}
 
 		// this match is not exact so skip it (borrowing from JavaCharacter)
-		if (currIndex > 0
-				&& (Character
-						.isJavaIdentifierStart(buf.charAt(currIndex - 1)) || Character
-						.isJavaIdentifierPart(buf.charAt(currIndex - 1)))) {
+		if (currIndex > 0 && (Character.isJavaIdentifierStart(buf.charAt(currIndex - 1)) ||
+			Character.isJavaIdentifierPart(buf.charAt(currIndex - 1)))) {
 			return false;
 		}
 		int afterIndex = currIndex + defName.length();
-		if (afterIndex < buf.length()
-				&& (Character.isJavaIdentifierStart(buf.charAt(afterIndex)) || Character
-						.isJavaIdentifierPart(buf.charAt(afterIndex)))) {
+		if (afterIndex < buf.length() && (Character.isJavaIdentifierStart(buf.charAt(afterIndex)) ||
+			Character.isJavaIdentifierPart(buf.charAt(afterIndex)))) {
 			return false;
 		}
 
 		//nextRepl = image.substring(0, currIndex);	// shift to location
 		String replacementString = defs.get(defName).image;		// get replacement text
-		if (replacementString.equals(defName))
+		if (replacementString.equals(defName)) {
 			return false; // no need to replace
-		
-//		// check that macro argv arguments match
-//		Vector<PPToken> argv = getArgs(defName);
-//		if (argv != null && argv.size() > 0) {
-//			// need to scan carefully, and recursively
-//			// there shouldn't be so many globals...
-//			// could be screwed up by so many things
-//			String parms = getParams(buf, currIndex + defName.length(),
-//					(char) 0);
-//
-//			int parmslen = parms.length();
-//			if (parmslen < 2) {
-//				return false;
-//			}
-//			parms = parms.trim();
-//			if (!parms.startsWith("(") || !parms.endsWith(")")) {
-//				return false;
-//			}
-//		}
-			
+		}
+
 		return true;
 	}
 
 	int replace(StringBuffer buf, String currKey, int fromIndex, ArrayList<String> sublist) {
 		String replacementString = null;
-		
+
 		if (sublist == null) {
 			sublist = new ArrayList<String>();
 		}
 
 		//String nextRepl = "";
 		int currIndex = buf.indexOf(currKey, fromIndex);
-		if (currIndex < 0)
+		if (currIndex < 0) {
 			return -1; // nothing to replace
+		}
 
 		// this match is not exact so skip it (borrowing from JavaCharacter)
-		if (currIndex > 0
-				&& (Character
-						.isJavaIdentifierStart(buf.charAt(currIndex - 1)) || Character
-						.isJavaIdentifierPart(buf.charAt(currIndex - 1)))) {
+		if (currIndex > 0 && (Character.isJavaIdentifierStart(buf.charAt(currIndex - 1)) ||
+			Character.isJavaIdentifierPart(buf.charAt(currIndex - 1)))) {
 			return -1;
 		}
 		int afterIndex = currIndex + currKey.length();
-		if (afterIndex < buf.length()
-				&& (Character.isJavaIdentifierStart(buf.charAt(afterIndex)) || Character
-						.isJavaIdentifierPart(buf.charAt(afterIndex)))) {
+		if (afterIndex < buf.length() && (Character.isJavaIdentifierStart(buf.charAt(afterIndex)) ||
+			Character.isJavaIdentifierPart(buf.charAt(afterIndex)))) {
 			return -1;
 		}
 
 		//nextRepl = image.substring(0, currIndex);	// shift to location
 		replacementString = defs.get(currKey).image;		// get replacement text
-		if (replacementString.equals(currKey))
+		if (replacementString.equals(currKey)) {
 			return -1; // no need to replace
-		
+		}
+
 		// if current def has args, take care of the replacement of them
 		Vector<PPToken> argv = getArgs(currKey);
 		int replacedSubpieceLen = currKey.length();
@@ -402,12 +378,11 @@ public class DefineTable {
 			System.err.println("DONT Replace " + currKey + " in: " + buf);
 			return -1;
 		}
-		if (argv != null && argv.size() > 0) {
+		if (argv != null) {
 			// need to scan carefully, and recursively
 			// there shouldn't be so many globals...
 			// could be screwed up by so many things
-			String parms = getParams(buf, currIndex + currKey.length(),
-					(char) 0);
+			String parms = getParams(buf, currIndex + currKey.length(), (char) 0);
 
 			int parmslen = parms.length();
 			if (parmslen < 2) {
@@ -417,30 +392,20 @@ public class DefineTable {
 			if (!parms.startsWith("(") || !parms.endsWith(")")) {
 				return -1;
 			}
-			
+
 			parms = parms.substring(1, parms.length() - 1);
 			replacementString = subParams(replacementString, currKey, parms, argv);
 
 			replacementString = joinPdPd(replacementString);
-			
+
 			replacedSubpieceLen += parmslen;
 		}
-		// you may add an else if{} block to warn of malformed macros
-			// but the actual culprit may be the Define() non-terminal
-		//if (replString != null)
-		//	nextRepl += replString;
-		
-		sublist = new ArrayList<String>(sublist);
+
 		sublist.add(currKey);
-		String newReplString = macroSub(replacementString,0, sublist);
-		if (newReplString != null) {
-			replacementString = newReplString;
-		}
-		buf.replace(currIndex, currIndex+replacedSubpieceLen, replacementString);
-		//nextRepl += image.substring(currIndex + currKey.length());
-		return currIndex+replacementString.length();
+		buf.replace(currIndex, currIndex + replacedSubpieceLen, replacementString);
+		return currIndex + replacementString.length();
 	}
-	
+
 	/**
 	 * expand a define with arguments
 	 * 
@@ -455,27 +420,43 @@ public class DefineTable {
 		int index = 0;
 		int pos = 0;
 		StringBuffer argsfound = new StringBuffer();
+		boolean isVarArg = false;
+		boolean hadVarArgs = false;
 		while (pos < parms.length() || index < argv.size()) {
 			String argValue = "";
+			int origPos = pos;
 			if (pos < parms.length()) {
 				argValue = getParams(new StringBuffer(parms), pos, ',');
 			}
 			pos += argValue.length() + 1;
+
 			if (index >= argv.size()) {
-				Msg.error(
-						this,
-						"Define parameter mismatch for macro " + defName
-								+ "(" + parms + ")" + " Expected "
-								+ argv.size() + " arguments.  "
-								+ " badarg(" + index + ") " + argValue
-								+ " args processed : " + argsfound);
+				Msg.error(this,
+					"Define parameter mismatch for macro " + defName + "(" + parms + ")" +
+						" Expected " + argv.size() + " arguments.  " + " badarg(" + index + ") " +
+						argValue + " args processed : " + argsfound);
 				return replString;
 			}
+			
+			// Handle "..." varargs
+			//    if last argument is ellipsis, then is varargs, replace the rest of the params
 			String curArgName = argv.elementAt(index).image;
+			if (index == argv.size()-1 && VARARG_ELLIPSIS.equals(curArgName)) {
+				isVarArg = true;
+				//   Replace __VA_ARGS__ with the rest of params
+				curArgName = "__VA_ARGS__";
+				argValue = getParams(new StringBuffer(parms), origPos, '\0');
+				pos += argValue.length() + 1;
+			}
 			index++;
 			argValue = argValue.trim();
 			argsfound.append(argValue);
 			argsfound.append(", ");
+
+			// isVarArg, and had variable arguments
+			if (isVarArg && argValue.length() != 0) {
+				hadVarArgs = true;
+			}
 
 			int curpos = -1;
 			// find argname in substString
@@ -489,24 +470,20 @@ public class DefineTable {
 
 				// this match is not exact so skip it (borrowing from
 				// JavaCharacter)
-				if (curpos > 0
-						&& (Character.isJavaIdentifierStart(substString
-								.charAt(curpos - 1)) || Character
-								.isJavaIdentifierPart(substString
-										.charAt(curpos - 1)))) {
+				if (curpos > 0 &&
+					(Character.isJavaIdentifierStart(substString.charAt(curpos - 1)) ||
+						Character.isJavaIdentifierPart(substString.charAt(curpos - 1)))) {
 					continue;
 				}
 
 				int afterIndex = curpos + curArgName.length();
-				if (afterIndex < substString.length()
-						&& (Character.isJavaIdentifierStart(substString
-								.charAt(afterIndex)) || Character
-								.isJavaIdentifierPart(substString
-										.charAt(afterIndex)))) {
+				if (afterIndex < substString.length() &&
+					(Character.isJavaIdentifierStart(substString.charAt(afterIndex)) ||
+						Character.isJavaIdentifierPart(substString.charAt(afterIndex)))) {
 					continue;
 				}
 
-				Integer begin = new Integer(curpos);
+				Integer begin = Integer.valueOf(curpos);
 				int insertLoc = 0;
 				for (; insertLoc < beginPos.size(); insertLoc++) {
 					Integer loc = beginPos.get(insertLoc);
@@ -516,10 +493,10 @@ public class DefineTable {
 				}
 
 				beginPos.add(insertLoc, begin);
-				endPos.add(insertLoc,
-						new Integer(curpos + curArgName.length()));
+				endPos.add(insertLoc, Integer.valueOf(curpos + curArgName.length()));
 				subValue.add(insertLoc, argValue);
-			} while (curpos >= 0);
+			}
+			while (curpos >= 0);
 		}
 
 		StringBuffer buf = new StringBuffer();
@@ -535,8 +512,47 @@ public class DefineTable {
 			startpos = end;
 		}
 		buf.append(substString.substring(startpos));
+		
+		// Handle __VA_OPT__(<repl>)
+		//    if varargs and no more params, replace with ""
+		//    if varargs and has vararg params, replace with <repl>
+		if (isVarArg) {
+			replace_VaOpt(buf, hadVarArgs);
+		}
+		
 		substString = buf.toString();
 		return substString;
+	}
+
+	/**
+	 * Replace __VA_OPT__(arg) in buf with either the arg to __VA_OPT__
+	 * if there were any VARARGS, otherwise with ""
+	 * @param buf string buffer to replace __VA_OPT__(value) within
+	 * @param hadVarArgs
+	 */
+	private void replace_VaOpt(StringBuffer buf, boolean hadVarArgs) {		
+		int optIdx = buf.indexOf("__VA_OPT__");
+		if (optIdx < 0) {
+			return;
+		}
+		
+		int lparen = buf.indexOf("(", optIdx+1);
+		if (lparen < 0) {
+			return;
+		}
+		
+		int rparen = buf.indexOf(")",lparen+1);
+		if (rparen < 0) {
+			return;
+		}
+		
+		// get in between string.
+		String replarg = buf.substring(lparen+1, rparen);
+		if (hadVarArgs) {
+			buf.replace(optIdx, rparen+1, replarg);
+		} else {
+			buf.replace(optIdx, rparen+1, "");
+		}
 	}
 
 	/**
@@ -552,31 +568,39 @@ public class DefineTable {
 		if (pos >= len) {
 			return "";
 		}
+
 		char ch = buf.charAt(pos);
+		char lastChar = 0;
 		boolean hitQuote = false;
+		boolean hitTick = false;
 
 		while (pos < len) {
 			ch = buf.charAt(pos++);
-			if (ch == '"') {
+			if (ch == '"' && lastChar != '\\') {
 				hitQuote = !hitQuote;
 			}
-			if (!hitQuote && ch == endChar && depth == 0) {
+			if (ch == '\'' && lastChar != '\\') {
+				hitTick = !hitTick;
+			}
+			if (!(hitQuote || hitTick) && ch == endChar && depth == 0) {
 				pos--;
 				break;
 			}
-			if (!hitQuote && ch == ')') {
+			if (!(hitQuote || hitTick) && ch == ')') {
 				depth--;
-				if (depth == 0 && endChar == 0)
+				if (depth == 0 && endChar == 0) {
 					break;
+				}
 				// hit a paren above depth, back up
 				if (depth < 0) {
 					pos--;
 					break;
 				}
 			}
-			if (!hitQuote && ch == '(') {
+			if (!(hitQuote || hitTick) && ch == '(') {
 				depth++;
 			}
+			lastChar = ch;
 		}
 		return buf.substring(start, pos);
 	}
@@ -617,61 +641,63 @@ public class DefineTable {
 						inString = !inString;
 					}
 					quotePos--;
-				} while (quotePos > currIndex);
+				}
+				while (quotePos > currIndex);
 
 				int afterIndex = currIndex + 2;
 				while (currIndex > 0 && image.charAt(currIndex - 1) == ' ') {
 					currIndex--; // scan back for first non-blank before ##
 				}
 
-				while (afterIndex < image.length()
-						&& image.charAt(afterIndex) == ' ') {
+				while (afterIndex < image.length() && image.charAt(afterIndex) == ' ') {
 					afterIndex++; // scan back for first non-blank before ##
 				}
 
 				if (!inString) {
 					buf.replace(currIndex, afterIndex, "");
 					currIndex--;
-				} else {
+				}
+				else {
 					currIndex -= 2;
 				}
 			}
-		} while (currIndex > 0);
+		}
+		while (currIndex > 0);
 		image = buf.toString();
 		return image;
 	}
-	
+
 	/**
 	 * Given a data type manager, populate defines with constant values as Enums
 	 * 
 	 */
-	
-	public void populateDefineEquates(DataTypeManager dtMgr) {
+
+	public void populateDefineEquates(DataTypeManager openDTMgrs[], DataTypeManager dtMgr) {
 		int transactionID = dtMgr.startTransaction("Add Equates");
 
 		Iterator<String> iter = getDefineNames();
 		while (iter.hasNext()) {
 			String defName = iter.next();
-			// don't worry about macros
-			if (isArg(defName)) {
-				//System.err.println(defName + " = " + getValue(defName));
+			
+			String strValue = expandDefine(defName);
+			if (strValue == null) {
+				// couldn't expand, must have been a macro
 				continue;
 			}
-
-			// check if this is a numeric expression that could be simplified
-			//
-			String strValue = getValue(defName);
-			String strExpanded = expand(strValue, true);
-			strValue = strExpanded;
 			
 			// strip off any casting/parentheses
 			strValue = stripCast(strValue);
-			
+
 			long value = 0;
 			Long lvalue = getCValue(strValue);
 
 			if (lvalue == null) {
-				lvalue = AddressEvaluator.evaluateToLong(strValue);
+				try {
+					lvalue = AddressEvaluator.evaluateToLong(strValue);
+				}
+				catch (Exception exc) {
+					// ignore didn't parse well
+				}
 				if (lvalue == null) {
 					continue;
 				}
@@ -679,21 +705,65 @@ public class DefineTable {
 
 			value = lvalue.longValue();
 
-			String enumName = "define_" + defName;
-
-			EnumDataType enuum = new EnumDataType(enumName, 8);
-			enuum.add(defName, value);
-
-			String defPath = getDefinitionPath(defName);
-			String currentCategoryName = getFileName(defPath);
-			CategoryPath path = getCategory(currentCategoryName);
-			path = new CategoryPath(path, "defines");
-			enuum.setCategoryPath(path);
-
-			dtMgr.addDataType(enuum, DataTypeConflictHandler.DEFAULT_HANDLER);
+			populateDefineEquate(openDTMgrs, dtMgr, "defines", "define_", defName, value);
 		}
 
 		dtMgr.endTransaction(transactionID, true);
+	}
+
+	public void populateDefineEquate(DataTypeManager openDTMgrs[], DataTypeManager dtMgr, String category, String prefix, String defName, long value) {
+		String enumName = prefix + defName;
+
+		EnumDataType enuum = new EnumDataType(enumName, 8);
+		enuum.add(defName, value);
+
+		String defPath = getDefinitionPath(defName);
+		String currentCategoryName = getFileName(defPath);
+		CategoryPath path = getCategory(currentCategoryName);
+		path = new CategoryPath(path, category);
+		enuum.setCategoryPath(path);
+		
+		DataType dt = resolveDataType(openDTMgrs, path, enuum);
+
+		dtMgr.addDataType(dt, DataTypeConflictHandler.DEFAULT_HANDLER);
+	}
+	
+    private DataType resolveDataType(DataTypeManager openDTMgrs[], CategoryPath path, DataType dt) {
+    	if (openDTMgrs == null) {
+    		return dt;
+    	}
+        // If the exact data type exists in any open DTMgr, use the open DTmgr type
+        // instead
+
+        for (int i = 0; i < openDTMgrs.length; i++) {
+            // look for the data type by name
+            //    equivalent, return it
+            // look for the data type by category
+            //    equivalent, return it
+        	DataType candidateDT = openDTMgrs[i].getDataType(dt.getCategoryPath(), dt.getName());
+        	
+        	if (candidateDT != null && candidateDT.isEquivalent(candidateDT)) {
+        		return candidateDT;
+        	}
+        }
+
+        return dt;
+    }
+
+	public String expandDefine(String defName) {
+		// don't worry about macros
+		if (isArg(defName)) {
+			//System.err.println(defName + " = " + getValue(defName));
+			return null;
+		}
+
+		// check if this is a numeric expression that could be simplified
+		//
+		String strValue = getValue(defName);
+		String strExpanded = expand(strValue, true);
+		strValue = strExpanded;
+		
+		return strValue;
 	}
 
 	/**
@@ -702,7 +772,7 @@ public class DefineTable {
 	 * @param strValue value to parse
 	 * @return long value if parsable as an integer, null otherwise
 	 */
-	private static Long getCValue(String strValue) {
+	public static Long getCValue(String strValue) {
 		try {
 			int start = 0;
 			int radix = 10;
@@ -710,9 +780,10 @@ public class DefineTable {
 			if (strValue.startsWith("0x")) {
 				start = 2;
 				radix = 16;
-			} else if (strValue.startsWith("0")) {
+			}
+			else if (strValue.startsWith("0")) {
 				start = 1;
-				radix = 8;	
+				radix = 8;
 			}
 			if (strValue.endsWith("ul") || strValue.endsWith("ll")) {
 				strValue = strValue.substring(0, strValue.length() - 2);
@@ -720,11 +791,11 @@ public class DefineTable {
 			else if (strValue.endsWith("l") || strValue.endsWith("u")) {
 				strValue = strValue.substring(0, strValue.length() - 1);
 			}
-			
+
 			if (start != 0) {
 				strValue = strValue.substring(start);
 			}
-			
+
 			return Long.parseLong(strValue, radix);
 		}
 		catch (RuntimeException e) {
@@ -732,7 +803,7 @@ public class DefineTable {
 		}
 		return null;
 	}
-	
+
 	/*
 	 * create a category path based on a name, or the root category with no name
 	 */
@@ -748,6 +819,9 @@ public class DefineTable {
 	 * Get the filename portion of a path
 	 */
 	private static String getFileName(String path) {
+		if (path == null) {
+			return null;
+		}
 		int slashpos = path.lastIndexOf('/');
 		if (slashpos < 0) {
 			slashpos = path.lastIndexOf('\\');
@@ -757,41 +831,42 @@ public class DefineTable {
 		}
 		return path.substring(slashpos + 1);
 	}
-	
+
 	/*
 	 * Strip off any casts
 	 */
 	private static String stripCast(String strValue) {
 		strValue = strValue.trim();
-		
+
 		int pos = 0;
 		while (pos < strValue.length()) {
 			int procLen = 1;
-			int startPos = strValue.indexOf('(',pos);
+			int startPos = strValue.indexOf('(', pos);
 			if (startPos == -1) {
 				return strValue; // done, no more open parens
 			}
 			pos = startPos;
-				int endParen = strValue.indexOf(')', pos+1);
-				if (endParen != -1) {
-					String subStr = strValue.substring(pos+1, endParen);
-					if (subStr.length() > 0) {
-					   int subPos = 0;
-					   subStr = subStr.trim();
-					   boolean isValid = Character.isJavaIdentifierStart(subStr.charAt(0));
-					   while (isValid && subPos < subStr.length()) {
-						   char ch = subStr.charAt(subPos++);
-						   isValid |= Character.isJavaIdentifierPart(ch);
-					   }
-					   // if looks like a cast, throw it away
-					   if (isValid) {
-						   strValue = strValue.substring(0, pos) + strValue.substring(endParen+1);
-						   procLen = 0;
-					   }
+			int endParen = strValue.indexOf(')', pos + 1);
+			if (endParen != -1) {
+				String subStr = strValue.substring(pos + 1, endParen);
+				if (subStr.length() > 0) {
+					int subPos = 0;
+					subStr = subStr.trim();
+					boolean isValid = Character.isJavaIdentifierStart(subStr.charAt(0));
+					while (isValid && subPos < subStr.length()) {
+						char ch = subStr.charAt(subPos++);
+						isValid |= Character.isJavaIdentifierPart(ch);
 					}
-				} else {
-					return strValue;  // no more end parens, just finish
+					// if looks like a cast, throw it away
+					if (isValid) {
+						strValue = strValue.substring(0, pos) + strValue.substring(endParen + 1);
+						procLen = 0;
+					}
 				}
+			}
+			else {
+				return strValue;  // no more end parens, just finish
+			}
 			pos = pos + procLen;
 		}
 		return strValue;

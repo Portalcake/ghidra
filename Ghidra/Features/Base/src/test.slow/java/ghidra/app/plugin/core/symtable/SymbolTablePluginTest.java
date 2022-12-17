@@ -28,6 +28,7 @@ import java.util.function.BiConsumer;
 import javax.swing.*;
 import javax.swing.event.ChangeEvent;
 import javax.swing.table.TableModel;
+import javax.swing.text.JTextComponent;
 
 import org.jdom.Element;
 import org.junit.*;
@@ -86,7 +87,6 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Before
 	public void setUp() throws Exception {
-
 		env = new TestEnv();
 
 		tool = env.getTool();
@@ -346,10 +346,45 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 		waitForNotBusy();
 
-		assertTrue(!symbolTable.isEditing());
+		assertFalse(symbolTable.isEditing());
 
 		Symbol s = getSymbol(row);
 		assertEquals("ghidra.Is.Cool", s.getName());
+	}
+
+	@Test
+	public void testEditName_AddNamespace() throws Exception {
+		openProgram("sample");
+
+		waitForNotBusy();
+
+		String symbolName = "ghidra";
+		int row = findRow(symbolName);
+
+		doubleClick(symbolTable, row, SymbolTableModel.LABEL_COL);
+		waitForSwing();
+		assertTrue(symbolTable.isEditing());
+
+		Component editor = symbolTable.getEditorComponent();
+		assertNotNull(editor);
+		JTextField textField = (JTextField) editor;
+		String currentText = getText(textField);
+		assertEquals(symbolName, currentText);
+
+		String newNamespaceName = "NS1";
+		JTextComponent textComponent = (JTextComponent) editor;
+		runSwing(() -> textComponent.selectAll());
+		myTypeText(editor, newNamespaceName + Namespace.DELIMITER + symbolName);
+		runSwing(() -> symbolTable.editingStopped(new ChangeEvent(symbolTable)));
+
+		waitForNotBusy();
+
+		assertFalse(symbolTable.isEditing());
+
+		Symbol s = getSymbol(row);
+		assertEquals(symbolName, s.getName());
+		Namespace namespace = s.getParentNamespace();
+		assertEquals(newNamespaceName, namespace.getName());
 	}
 
 	@Test
@@ -397,10 +432,11 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 	@Test
 	public void testDeleting() throws Exception {
+
 		openProgram("sample");
 
 		int rowCount = symbolTable.getRowCount();
-		assertTrue(!deleteAction.isEnabled());
+		assertFalse(deleteAction.isEnabled());
 
 		int row = findRow("ghidra");
 		Rectangle rect = symbolTable.getCellRect(row, 0, true);
@@ -488,7 +524,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 	public void testMakeSelection() throws Exception {
 		openProgram("sample");
 
-		assertTrue(!makeSelectionAction.isEnabled());
+		assertFalse(makeSelectionAction.isEnabled());
 
 		int row1 = findRow("ghidra");
 		int row2 = findRow("KERNEL32.dll_GetProcAddress");
@@ -589,7 +625,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 		});
 		waitForNotBusy();
 		assertEquals(rowCount + 1, symbolTable.getRowCount());
-		assertTrue(symbolModel.getRowIndex(sym) >= 0);
+		assertTrue(symbolModel.getRowIndex(new SymbolRowObject(sym)) >= 0);
 
 		sym = modifyProgram(program, p -> {
 			return st.createLabel(sample.getNewAddress(0x01007100), "Athena",
@@ -597,7 +633,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 		});
 		waitForNotBusy();
 		assertEquals(rowCount + 2, symbolTable.getRowCount());
-		assertTrue(symbolModel.getRowIndex(sym) >= 0);
+		assertTrue(symbolModel.getRowIndex(new SymbolRowObject(sym)) >= 0);
 	}
 
 	@Test
@@ -625,7 +661,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 				SourceType.USER_DEFINED);
 		});
 		waitForNotBusy();
-		assertTrue(symbolModel.getRowIndex(sym) >= 0);
+		assertTrue(symbolModel.getRowIndex(new SymbolRowObject(sym)) >= 0);
 
 		// make sure we added one while the filter is on
 		assertEquals(rowCount + 1, symbolModel.getRowCount());
@@ -700,7 +736,8 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 		// entry symbol replaced by dynamic External Entry symbol
 		assertNull(getUniqueSymbol(program, "entry"));
 		assertNotNull(getUniqueSymbol(program, "EXT_00000051"));
-		assertTrue("Deleted symbol not removed from table", symbolModel.getRowIndex(sym) < 0);
+		assertTrue("Deleted symbol not removed from table",
+			symbolModel.getRowIndex(new SymbolRowObject(sym)) < 0);
 	}
 
 	@Test
@@ -710,7 +747,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 		Symbol s = getUniqueSymbol(program, "entry");
 
-		int row = symbolModel.getRowIndex(s);
+		int row = symbolModel.getRowIndex(new SymbolRowObject(s));
 		Integer refCount = getRefCount(row);
 		assertNotNull(refCount);
 		assertEquals(3, refCount.intValue());
@@ -724,7 +761,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 
 		waitForNotBusy();
 
-		row = symbolModel.getRowIndex(s);
+		row = symbolModel.getRowIndex(new SymbolRowObject(s));
 
 		refCount = getRefCount(row);
 		assertNotNull(refCount);
@@ -737,7 +774,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 		Address sample = program.getMinAddress();
 
 		Symbol s = getUniqueSymbol(program, "doStuff");
-		int row = symbolModel.getRowIndex(s);
+		int row = symbolModel.getRowIndex(new SymbolRowObject(s));
 		Integer refCount = getRefCount(row);
 		assertNotNull(refCount);
 		assertEquals(4, refCount.intValue());
@@ -1157,7 +1194,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private int indexOf(Symbol symbol) {
-		return runSwing(() -> symbolModel.getRowIndex(symbol));
+		return runSwing(() -> symbolModel.getRowIndex(new SymbolRowObject(symbol)));
 	}
 
 	private void removeReference(String from, String to) {
@@ -1284,7 +1321,7 @@ public class SymbolTablePluginTest extends AbstractGhidraHeadedIntegrationTest {
 	}
 
 	private Symbol getSymbol(int row) {
-		return symbolModel.getRowObject(row);
+		return symbolModel.getRowObject(row).getSymbol();
 	}
 
 	private Integer getRefCount(int row) {

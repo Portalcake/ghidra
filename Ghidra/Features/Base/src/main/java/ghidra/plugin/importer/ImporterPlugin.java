@@ -15,10 +15,12 @@
  */
 package ghidra.plugin.importer;
 
+import java.util.*;
+
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
-import java.io.*;
-import java.util.*;
+import java.io.File;
+import java.io.IOException;
 
 import docking.ActionContext;
 import docking.action.*;
@@ -29,9 +31,16 @@ import ghidra.app.context.ListingActionContext;
 import ghidra.app.events.ProgramActivatedPluginEvent;
 import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.services.*;
+import ghidra.app.util.bin.ByteProvider;
 import ghidra.app.util.importer.LibrarySearchPathManager;
-import ghidra.formats.gfilesystem.*;
+import ghidra.app.util.opinion.LoaderMap;
+import ghidra.app.util.opinion.LoaderService;
+import ghidra.formats.gfilesystem.FSRL;
+import ghidra.formats.gfilesystem.FileCache.FileCacheEntry;
+import ghidra.formats.gfilesystem.FileCache.FileCacheEntryBuilder;
+import ghidra.formats.gfilesystem.FileSystemService;
 import ghidra.framework.main.*;
+import ghidra.framework.main.datatree.DomainFileNode;
 import ghidra.framework.main.datatree.DomainFolderNode;
 import ghidra.framework.model.*;
 import ghidra.framework.options.SaveState;
@@ -64,7 +73,7 @@ import ghidra.util.task.TaskLauncher;
 )
 //@formatter:on
 public class ImporterPlugin extends Plugin
-		implements FileImporterService, FrontEndable, ProjectListener {
+		implements FileImporterService, ApplicationLevelPlugin, ProjectListener {
 
 	private static final String IMPORT_MENU_GROUP = "Import";
 	static final String IMPORTER_PLUGIN_DESC =
@@ -245,8 +254,8 @@ public class ImporterPlugin extends Plugin
 			@Override
 			public void actionPerformed(ActionContext context) {
 				if (context instanceof ListingActionContext) {
-					doImportSelectionAction(
-						((ListingActionContext) context).getNavigatable().getSelection());
+					ListingActionContext lac = (ListingActionContext) context;
+					doImportSelectionAction(lac.getProgram(), lac.getSelection());
 				}
 			}
 
@@ -296,6 +305,11 @@ public class ImporterPlugin extends Plugin
 		if (contextObj instanceof DomainFolderNode) {
 			DomainFolderNode node = (DomainFolderNode) contextObj;
 			return node.getDomainFolder();
+		}
+		if (contextObj instanceof DomainFileNode) {
+			DomainFileNode node = (DomainFileNode) contextObj;
+			DomainFile domainFile = node.getDomainFile();
+			return domainFile != null ? domainFile.getParent() : null;
 		}
 
 		return AppInfo.getActiveProject().getProjectData().getRootFolder();
@@ -350,8 +364,7 @@ public class ImporterPlugin extends Plugin
 	}
 
 	private void addToProgram(File file) {
-		GFile gFile = FileSystemService.getInstance().getLocalGFile(file);
-		if (gFile.getLength() == 0) {
+		if (file.length() == 0) {
 			Msg.showInfo(this, null, "Import File Failed",
 				"File " + file.getName() + " is empty (0 bytes).");
 			return;
@@ -367,38 +380,42 @@ public class ImporterPlugin extends Plugin
 
 	}
 
-	protected void doImportSelectionAction(ProgramSelection selection) {
+	protected void doImportSelectionAction(Program program, ProgramSelection selection) {
 		if (selection == null || selection.getNumAddressRanges() != 1) {
 			return;
 		}
 
 		AddressRange range = selection.getFirstRange();// should only be 1
-		if (range.getLength() >= (Integer.MAX_VALUE & 0xffffffffL)) {
+		if (range.getLength() >= Integer.MAX_VALUE) {
 			Msg.showInfo(getClass(), tool.getActiveWindow(), "Selection Too Large",
 				"The selection is too large to extract.");
 			return;
 		}
 
-		ProgramManager programManager = tool.getService(ProgramManager.class);
-		Program program = programManager.getCurrentProgram();
-		if (program == null) {
-			return;
-		}
-
-		Memory memory = program.getMemory();
-		MemoryBlock block = memory.getBlock(range.getMinAddress());
-		String tempFileName =
-			block.getName() + "_[" + range.getMinAddress() + "," + range.getMaxAddress() + "]_";
 		try {
-			File tempFile = File.createTempFile(tempFileName, ".tmp");
-			try (OutputStream outputStream = new FileOutputStream(tempFile)) {
+			Memory memory = program.getMemory();
+			FileSystemService fsService = FileSystemService.getInstance();
+
+			// create a tmp ByteProvider that contains the bytes from the selected region
+			FileCacheEntry tmpFile;
+			try (FileCacheEntryBuilder tmpFileBuilder =
+				fsService.createTempFile(range.getLength())) {
 				byte[] bytes = new byte[(int) range.getLength()];
 				memory.getBytes(range.getMinAddress(), bytes);
-				outputStream.write(bytes);
+				tmpFileBuilder.write(bytes);
+				tmpFile = tmpFileBuilder.finish();
 			}
 
-			DomainFolder folder = AppInfo.getActiveProject().getProjectData().getRootFolder();
-			importFile(folder, tempFile);
+			MemoryBlock block = memory.getBlock(range.getMinAddress());
+			String rangeName =
+				block.getName() + "[" + range.getMinAddress() + "," + range.getMaxAddress() + "]";
+			ByteProvider bp =
+				fsService.getNamedTempFile(tmpFile, program.getName() + " " + rangeName);
+			LoaderMap loaderMap = LoaderService.getAllSupportedLoadSpecs(bp);
+
+			ImporterDialog importerDialog = new ImporterDialog(tool,
+				tool.getService(ProgramManager.class), loaderMap, bp, null);
+			tool.showDialog(importerDialog);
 		}
 		catch (IOException e) {
 			Msg.showError(this, null, "I/O Error Occurred", e.getMessage(), e);

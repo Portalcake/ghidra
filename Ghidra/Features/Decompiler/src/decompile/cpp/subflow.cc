@@ -997,6 +997,7 @@ bool SubvariableFlow::createCompareBridge(PcodeOp *op,ReplaceVarnode *inrvn,int4
 /// \param mask is the set of bits holding the logical value (within a bigger value)
 /// \param slot is the input slot to the operation
 /// \param constvn is the original constant
+/// \return the new constant variable node
 SubvariableFlow::ReplaceVarnode *SubvariableFlow::addConstant(ReplaceOp *rop,uintb mask,
 					      uint4 slot,Varnode *constvn)
 {
@@ -1018,6 +1019,13 @@ SubvariableFlow::ReplaceVarnode *SubvariableFlow::addConstant(ReplaceOp *rop,uin
   return res;
 }
 
+/// \brief Add a new constant variable node as an input to a logical operation.
+///
+/// The constant is new and isn't associated with a constant in the original graph.
+/// \param rop is the logical operation taking the constant as input
+/// \param slot is the input slot to the operation
+/// \param val is the constant value
+/// \return the new constant variable node
 SubvariableFlow::ReplaceVarnode *SubvariableFlow::addNewConstant(ReplaceOp *rop,uint4 slot,uintb val)
 
 {
@@ -2188,7 +2196,7 @@ bool LaneDivide::buildStore(PcodeOp *op,int4 numLanes,int4 skipLanes)
   if (inVars == (TransformVar *)0) return false;
   uintb spaceConst = op->getIn(0)->getOffset();
   int4 spaceConstSize = op->getIn(0)->getSize();
-  AddrSpace *spc = Address::getSpaceFromConst(op->getIn(0)->getAddr());	// Address space being stored to
+  AddrSpace *spc = op->getIn(0)->getSpaceFromConst();	// Address space being stored to
   Varnode *origPtr = op->getIn(1);
   if (origPtr->isFree()) {
     if (!origPtr->isConstant()) return false;
@@ -2236,7 +2244,7 @@ bool LaneDivide::buildLoad(PcodeOp *op,TransformVar *outVars,int4 numLanes,int4 
 {
   uintb spaceConst = op->getIn(0)->getOffset();
   int4 spaceConstSize = op->getIn(0)->getSize();
-  AddrSpace *spc = Address::getSpaceFromConst(op->getIn(0)->getAddr());	// Address space being stored to
+  AddrSpace *spc = op->getIn(0)->getSpaceFromConst();	// Address space being stored to
   Varnode *origPtr = op->getIn(1);
   if (origPtr->isFree()) {
     if (!origPtr->isConstant()) return false;

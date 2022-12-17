@@ -102,7 +102,7 @@ public class WrappedDbgModel
 	}
 
 	@Override
-	public void attachProcess(DebugServerId si, int processId,
+	public void attachProcess(DebugServerId si, long processId,
 			BitmaskSet<DebugAttachFlags> attachFlags) {
 		client.attachProcess(si, processId, attachFlags);
 	}
@@ -336,6 +336,11 @@ public class WrappedDbgModel
 	@Override
 	public DebugMemoryBasicInformation queryVirtual(long offset) {
 		return client.getDataSpaces().queryVirtual(offset);
+	}
+
+	@Override
+	public long virtualToPhysical(long offset) {
+		return client.getDataSpaces().virtualToPhysical(offset);
 	}
 
 	// REGISTERS INTERFACE

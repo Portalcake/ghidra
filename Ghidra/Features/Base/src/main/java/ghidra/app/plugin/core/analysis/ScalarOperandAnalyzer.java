@@ -30,7 +30,6 @@ import ghidra.program.model.lang.GhidraLanguagePropertyKeys;
 import ghidra.program.model.lang.Language;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.mem.MemoryAccessException;
-import ghidra.program.model.reloc.Relocation;
 import ghidra.program.model.reloc.RelocationTable;
 import ghidra.program.model.scalar.Scalar;
 import ghidra.program.model.symbol.*;
@@ -56,7 +55,7 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 	private static final int MAX_NEG_ENTRIES = 32;
 
 	private int alignment = 4;
-	
+
 	private TaskMonitor monitor;
 
 	public ScalarOperandAnalyzer() {
@@ -78,7 +77,8 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 	}
 
 	@Override
-	public boolean added(Program program, AddressSetView set, TaskMonitor taskMonitor, MessageLog log) {
+	public boolean added(Program program, AddressSetView set, TaskMonitor taskMonitor,
+			MessageLog log) {
 		int count = 0;
 
 		monitor = taskMonitor;
@@ -88,14 +88,15 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 			//   Evaluate each operand
 			//
 			Listing listing = program.getListing();
-	
+
 			InstructionIterator iter = listing.getInstructions(set, true);
 			while (iter.hasNext() && !monitor.isCancelled()) {
 				Instruction instr = iter.next();
 				monitor.setProgress(++count);
 				checkOperands(program, instr);
 			}
-		} finally {
+		}
+		finally {
 			monitor = null; // get rid of the reference to it
 		}
 
@@ -113,32 +114,35 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 				}
 				Scalar scalar = (Scalar) objs[j];
 
-				//if a relocation exists, then this is a valid address
+				//if a relocation exists, assume this is a valid address
+				RelocationTable relocTable = program.getRelocationTable();
 				boolean found = false;
 				for (int r = 0; r < instr.getLength(); ++r) {
 					Address addr = instr.getMinAddress().add(r);
-					RelocationTable relocTable = program.getRelocationTable();
-					Relocation reloc = relocTable.getRelocation(addr);
-					if (reloc != null) {
+					if (relocTable.hasRelocation(addr)) {
 						try {
 							switch (scalar.bitLength()) {
 								case 8:
-									if (program.getMemory().getByte(addr) == scalar.getSignedValue()) {
+									if (program.getMemory().getByte(addr) == scalar
+											.getSignedValue()) {
 										found = true;
 									}
 									break;
 								case 16:
-									if (program.getMemory().getShort(addr) == scalar.getSignedValue()) {
+									if (program.getMemory().getShort(addr) == scalar
+											.getSignedValue()) {
 										found = true;
 									}
 									break;
 								case 32:
-									if (program.getMemory().getInt(addr) == scalar.getSignedValue()) {
+									if (program.getMemory().getInt(addr) == scalar
+											.getSignedValue()) {
 										found = true;
 									}
 									break;
 								case 64:
-									if (program.getMemory().getLong(addr) == scalar.getSignedValue()) {
+									if (program.getMemory().getLong(addr) == scalar
+											.getSignedValue()) {
 										found = true;
 									}
 									break;
@@ -162,7 +166,8 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 				}
 
 				// check the address in this space first
-				if (addReference(program, instr, i, instr.getMinAddress().getAddressSpace(), scalar)) {
+				if (addReference(program, instr, i, instr.getMinAddress().getAddressSpace(),
+					scalar)) {
 					continue;
 				}
 
@@ -189,7 +194,7 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 		RelocationTable relocationTable = program.getRelocationTable();
 		if (relocationTable.isRelocatable()) {
 			// if it is relocatable, then there should be no pointers in memory, other than relacatable ones
-			if (relocationTable.getSize() > 0 && relocationTable.getRelocation(target) == null) {
+			if (relocationTable.getSize() != 0 && !relocationTable.hasRelocation(target)) {
 				return false;
 			}
 		}
@@ -209,10 +214,11 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 			return false;
 		}
 
-		//check that memory contains the target address
+		// if the reference is not in memory or to a well known location, then don't create it
+		// because we are not sure it is correct
 		if (!program.getMemory().contains(addr)) {
-			Symbol syms[] = program.getSymbolTable().getSymbols(addr);
-			if (syms == null || syms.length == 0 || syms[0].getSource() == SourceType.DEFAULT) {
+			Symbol symbol = program.getSymbolTable().getPrimarySymbol(addr);
+			if (symbol == null || symbol.getSource() == SourceType.DEFAULT) {
 				return false;
 			}
 		}
@@ -284,8 +290,9 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 				AddressTable.MINIMUM_SAFE_ADDRESS, relocationGuideEnabled);
 		if (table != null) {
 			// add in an offcut reference
-			program.getReferenceManager().addOffsetMemReference(refInstr.getMinAddress(), offAddr,
-				-entryLen, RefType.DATA, SourceType.ANALYSIS, opIndex);
+			program.getReferenceManager()
+					.addOffsetMemReference(refInstr.getMinAddress(), offAddr,
+						false, -entryLen, RefType.DATA, SourceType.ANALYSIS, opIndex);
 			return;
 		}
 
@@ -321,8 +328,9 @@ public class ScalarOperandAnalyzer extends AbstractAnalyzer {
 			offAddr = lastGoodTable.getTopAddress();
 
 			// add in an offcut reference
-			program.getReferenceManager().addOffsetMemReference(instr.getMinAddress(), offAddr,
-				(i + 3) * entryLen, RefType.DATA, SourceType.ANALYSIS, opIndex);
+			program.getReferenceManager()
+					.addOffsetMemReference(instr.getMinAddress(), offAddr,
+						false, (i + 3) * entryLen, RefType.DATA, SourceType.ANALYSIS, opIndex);
 			return;
 		}
 	}

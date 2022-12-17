@@ -18,6 +18,8 @@ package ghidra.program.model.data;
 import java.math.BigInteger;
 import java.util.*;
 
+import org.apache.commons.lang3.StringUtils;
+
 import ghidra.docking.settings.Settings;
 import ghidra.docking.settings.SettingsDefinition;
 import ghidra.program.database.data.DataTypeUtilities;
@@ -32,7 +34,8 @@ public class EnumDataType extends GenericDataType implements Enum {
 		new SettingsDefinition[] { MutabilitySettingsDefinition.DEF };
 
 	private Map<String, Long> nameMap; // name to value
-	private Map<Long, List<String>> valueMap; // value to names
+	private TreeMap<Long, List<String>> valueMap; // value to names
+	private Map<String, String> commentMap; // name to comment
 	private int length;
 	private String description;
 	private List<BitGroup> bitGroups;
@@ -51,7 +54,8 @@ public class EnumDataType extends GenericDataType implements Enum {
 			throw new IllegalArgumentException("unsupported enum length: " + length);
 		}
 		nameMap = new HashMap<>();
-		valueMap = new HashMap<>();
+		valueMap = new TreeMap<>();
+		commentMap = new HashMap<>();
 		this.length = length;
 	}
 
@@ -64,7 +68,8 @@ public class EnumDataType extends GenericDataType implements Enum {
 			throw new IllegalArgumentException("unsupported enum length: " + length);
 		}
 		nameMap = new HashMap<>();
-		valueMap = new HashMap<>();
+		valueMap = new TreeMap<>();
+		commentMap = new HashMap<>();
 		this.length = length;
 	}
 
@@ -92,17 +97,39 @@ public class EnumDataType extends GenericDataType implements Enum {
 	}
 
 	@Override
+	public String[] getNames(long value) {
+		List<String> list = valueMap.get(value);
+		if (list == null || list.isEmpty()) {
+			return null;
+		}
+		return list.toArray(new String[0]);
+	}
+
+	@Override
+	public String getComment(String valueName) {
+		String comment = commentMap.get(valueName);
+		if (comment == null) {
+			comment = "";
+		}
+		return comment;
+	}
+
+	@Override
 	public long[] getValues() {
 		long[] values = valueMap.keySet().stream().mapToLong(Long::longValue).toArray();
-		Arrays.sort(values);
 		return values;
 	}
 
 	@Override
 	public String[] getNames() {
-		String[] names = nameMap.keySet().toArray(new String[nameMap.size()]);
-		Arrays.sort(names);
-		return names;
+		// names are first sorted by int value, then sub-sorted by name value
+		List<String> names = new ArrayList<>();
+		Collection<List<String>> values = valueMap.values();
+		for (List<String> list : values) {
+			Collections.sort(list);
+			names.addAll(list);
+		}
+		return names.toArray(new String[0]);
 	}
 
 	@Override
@@ -112,61 +139,49 @@ public class EnumDataType extends GenericDataType implements Enum {
 
 	@Override
 	public void add(String valueName, long value) {
+		add(valueName, value, null);
+	}
+
+	@Override
+	public void add(String valueName, long value, String comment) {
 		bitGroups = null;
 		checkValue(value);
 		if (nameMap.containsKey(valueName)) {
 			throw new IllegalArgumentException(valueName + " already exists in this enum");
 		}
+
 		nameMap.put(valueName, value);
-		List<String> list = valueMap.get(value);
-		if (list == null) {
-			list = new ArrayList<>();
-			valueMap.put(value, list);
-		}
+		List<String> list = valueMap.computeIfAbsent(value, v -> new ArrayList<>());
 		list.add(valueName);
-	}
 
-	private void checkValue(long value) {
-		if (length == 8) {
-			return; // all long values permitted
+		if (!StringUtils.isBlank(comment)) {
+			commentMap.put(valueName, comment);
 		}
-		// compute maximum enum value as a positive value: (2^length)-1
-		long max = (1L << (getLength() * 8)) - 1;
-		if (value > max) {
-			throw new IllegalArgumentException(
-				getName() + " enum value 0x" + Long.toHexString(value) +
-					" is outside the range of 0x0 to 0x" + Long.toHexString(max));
 
-		}
-	}
-
-	private boolean isTooBig(int testLength, long value) {
-		if (length == 8) {
-			return false; // all long values permitted
-		}
-		// compute maximum enum value as a positive value: (2^length)-1
-		long max = (1L << (testLength * 8)) - 1;
-		return value > max;
 	}
 
 	@Override
 	public void remove(String valueName) {
 		bitGroups = null;
 		Long value = nameMap.get(valueName);
-		if (value != null) {
-			nameMap.remove(valueName);
-			List<String> list = valueMap.get(value);
-			Iterator<String> iter = list.iterator();
-			while (iter.hasNext()) {
-				if (valueName.equals(iter.next())) {
-					iter.remove();
-					break;
-				}
-			}
-			if (list.isEmpty()) {
-				valueMap.remove(value);
+		if (value == null) {
+			return;
+		}
+
+		nameMap.remove(valueName);
+		List<String> list = valueMap.get(value);
+		Iterator<String> iter = list.iterator();
+		while (iter.hasNext()) {
+			if (valueName.equals(iter.next())) {
+				iter.remove();
+				break;
 			}
 		}
+		if (list.isEmpty()) {
+			valueMap.remove(value);
+		}
+
+		commentMap.remove(valueName);
 	}
 
 	@Override
@@ -201,17 +216,54 @@ public class EnumDataType extends GenericDataType implements Enum {
 		return length;
 	}
 
-	public void setLength(int length) {
+	public void setLength(int newLength) {
+		if (newLength == length) {
+			return;
+		}
+		if (newLength < 1 || newLength > 8) {
+			throw new IllegalArgumentException("Enum length must be between 1 and 8 inclusive");
+		}
+
+		checkValues(newLength);
+		this.length = newLength;
+	}
+
+	private void checkValues(int newLength) {
+		if (newLength == 8) {
+			return; // all long values permitted
+		}
+
+		long newMaxValue = getMaxEnumValue(newLength);
 		String[] names = getNames();
-		for (String enumName : names) {
-			long value = getValue(enumName);
-			if (isTooBig(length, value)) {
+		for (String valueName : names) {
+			long value = getValue(valueName);
+			if (value > newMaxValue) {
 				throw new IllegalArgumentException("Setting the length of this Enum to a size " +
-					"that cannot contain the current value for \"" + enumName + "\" of " +
-					Long.toHexString(value));
+					"that cannot contain the current value for \"" + valueName + "\" of 0x" +
+					Long.toHexString(value) + "\nOld length: " + length + "; new length: " +
+					newLength);
 			}
 		}
-		this.length = length;
+	}
+
+	private void checkValue(long value) {
+		if (length == 8) {
+			return; // all long values permitted
+		}
+
+		long max = getMaxEnumValue(length);
+		if (value > max) {
+			throw new IllegalArgumentException(
+				getName() + " enum value 0x" + Long.toHexString(value) +
+					" is outside the range of 0x0 to 0x" + Long.toHexString(max));
+
+		}
+	}
+
+	private long getMaxEnumValue(int bytes) {
+		int bits = bytes * 8;     // number of bits used for the given size
+		long power2 = 1L << bits; // 2^length is the number of values that 'bytes' can represent
+		return power2 - 1;		  // max value is always 1 less than 2^length (0-based)
 	}
 
 	@Override
@@ -222,7 +274,6 @@ public class EnumDataType extends GenericDataType implements Enum {
 	@Override
 	public void setDescription(String description) {
 		this.description = description;
-		stateChanged(null);
 	}
 
 	@Override
@@ -299,13 +350,13 @@ public class EnumDataType extends GenericDataType implements Enum {
 			return "0";
 		}
 		List<BitGroup> list = getBitGroups();
-		StringBuffer buf = new StringBuffer();
+		StringBuilder buf = new StringBuilder();
 		for (BitGroup bitGroup : list) {
 			long subValue = bitGroup.getMask() & value;
 			if (subValue != 0) {
 				String part = getName(subValue);
 				if (part == null) {
-					part = getStringForNoMatchingValue(subValue);
+					part = Long.toHexString(subValue).toUpperCase() + 'h';
 				}
 				if (buf.length() != 0) {
 					buf.append(" | ");
@@ -323,19 +374,6 @@ public class EnumDataType extends GenericDataType implements Enum {
 		return bitGroups;
 	}
 
-	private String getStringForNoMatchingValue(long value) {
-		String valueName;
-		String valueStr;
-		if (value < 0 || value >= 32) {
-			valueStr = "0x" + Long.toHexString(value);
-		}
-		else {
-			valueStr = Long.toString(value);
-		}
-		valueName = "" + valueStr;
-		return valueName;
-	}
-
 	@Override
 	public boolean isEquivalent(DataType dt) {
 		if (dt == this) {
@@ -344,27 +382,45 @@ public class EnumDataType extends GenericDataType implements Enum {
 		if (dt == null || !(dt instanceof Enum)) {
 			return false;
 		}
-		Enum enumm = (Enum) dt;
 
+		Enum enumm = (Enum) dt;
 		if (!DataTypeUtilities.equalsIgnoreConflict(name, enumm.getName()) ||
 			length != enumm.getLength() || getCount() != enumm.getCount()) {
 			return false;
 		}
+
+		if (!isEachValueEquivalent(enumm)) {
+			return false;
+		}
+		return true;
+	}
+
+	private boolean isEachValueEquivalent(Enum enumm) {
 		String[] names = getNames();
 		String[] otherNames = enumm.getNames();
 		try {
 			for (int i = 0; i < names.length; i++) {
+				if (!names[i].equals(otherNames[i])) {
+					return false;
+				}
+
 				long value = getValue(names[i]);
 				long otherValue = enumm.getValue(names[i]);
-				if (!names[i].equals(otherNames[i]) || value != otherValue) {
+				if (value != otherValue) {
+					return false;
+				}
+
+				String comment = getComment(names[i]);
+				String otherComment = enumm.getComment(names[i]);
+				if (!comment.equals(otherComment)) {
 					return false;
 				}
 			}
+			return true;
 		}
 		catch (NoSuchElementException e) {
 			return false; // named element not found
 		}
-		return true;
 	}
 
 	@Override
@@ -375,17 +431,17 @@ public class EnumDataType extends GenericDataType implements Enum {
 		}
 		Enum enumm = (Enum) dataType;
 		nameMap = new HashMap<>();
-		valueMap = new HashMap<>();
+		valueMap = new TreeMap<>();
+		commentMap = new HashMap<>();
 		setLength(enumm.getLength());
 		String[] names = enumm.getNames();
-		for (String name2 : names) {
-			add(name2, enumm.getValue(name2));
+		for (String valueName : names) {
+			add(valueName, enumm.getValue(valueName), enumm.getComment(valueName));
 		}
-		stateChanged(null);
 	}
 
 	@Override
 	public String getDefaultLabelPrefix() {
-		return name == null ? null : name.toUpperCase();
+		return name;
 	}
 }

@@ -22,6 +22,7 @@ import ghidra.program.model.address.AddressSpace;
 import ghidra.trace.model.TraceAddressSnapRange;
 import ghidra.trace.model.stack.TraceStackFrame;
 import ghidra.trace.model.thread.TraceThread;
+import ghidra.util.exception.DuplicateNameException;
 
 /**
  * A store of memory observations over time in a trace
@@ -32,6 +33,62 @@ import ghidra.trace.model.thread.TraceThread;
  * {@link #getMemoryRegisterSpace(TraceThread, int, boolean)}.
  */
 public interface TraceMemoryManager extends TraceMemoryOperations {
+
+	/**
+	 * Create a new address space with the given name based upon the given space
+	 * 
+	 * <p>
+	 * The purpose of overlay spaces in traces is often to store bytes for things other than memory
+	 * or registers. Some targets may expose other byte-based storage, or provide alternative views
+	 * of memory.
+	 * 
+	 * <p>
+	 * NOTE: This also provides a transitional piece for recording a model (sub)tree directly into a
+	 * trace, without mapping to a Ghidra language first. As we experiment with that mode, we will
+	 * likely instantiate traces with the "DATA:BE:64:default" language and generate an overlay
+	 * space named after the path of each memory being recorded. Of course, the mapping still needs
+	 * to occur between the trace and parts of the display and during emulation.
+	 * 
+	 * <p>
+	 * NOTE: We are also moving away from (space, thread, frame) triples to uniquely identify
+	 * register storage. Instead, that will be encoded into the address space itself. Register
+	 * overlays will overlay register space as be named after the register container object, which
+	 * subsumes thread and frame when applicable.
+	 * 
+	 * @param name the name of the new address space
+	 * @param base the space after which this is modeled
+	 * @return the create space
+	 * @throws DuplicateNameException if an address space with the name already exists
+	 */
+	AddressSpace createOverlayAddressSpace(String name, AddressSpace base)
+			throws DuplicateNameException;
+
+	/**
+	 * Get or create an overlay address space
+	 * 
+	 * <p>
+	 * If the space already exists, and it overlays the given base, the existing space is returned.
+	 * If it overlays a different space, null is returned. If the space does not exist, it is
+	 * created with the given base space.
+	 * 
+	 * @see #createOverlayAddressSpace(String, AddressSpace)
+	 * @param name the name of the address space
+	 * @param base the expected base space
+	 * @return the space, or null
+	 */
+	AddressSpace getOrCreateOverlayAddressSpace(String name, AddressSpace base);
+
+	/**
+	 * Delete an overlay address space
+	 * 
+	 * <p>
+	 * TODO: At the moment, this will not destroy manager spaces created for the deleted address
+	 * space. We should assess this behavior, esp. wrt. re-creating the address space later, and
+	 * decide whether or not to clean up.
+	 * 
+	 * @param name the name of the address space to delete
+	 */
+	void deleteOverlayAddressSpace(String name);
 
 	/**
 	 * Obtain a memory space bound to a particular address space
@@ -51,7 +108,7 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * @param createIfAbsent true to create the space if it's not already present
 	 * @return the space, or {@code null} if absent and not created
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceThread thread, int frame,
+	TraceMemorySpace getMemoryRegisterSpace(TraceThread thread, int frame,
 			boolean createIfAbsent);
 
 	/**
@@ -59,7 +116,7 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * 
 	 * @see #getMemoryRegisterSpace(TraceThread, int, boolean)
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceThread thread, boolean createIfAbsent);
+	TraceMemorySpace getMemoryRegisterSpace(TraceThread thread, boolean createIfAbsent);
 
 	/**
 	 * Obtain a "memory" space bound to the register address space for a stack frame
@@ -70,7 +127,7 @@ public interface TraceMemoryManager extends TraceMemoryOperations {
 	 * 
 	 * @see #getMemoryRegisterSpace(TraceThread, int, boolean)
 	 */
-	TraceMemoryRegisterSpace getMemoryRegisterSpace(TraceStackFrame frame, boolean createIfAbsent);
+	TraceMemorySpace getMemoryRegisterSpace(TraceStackFrame frame, boolean createIfAbsent);
 
 	/**
 	 * Collect all the regions added between two given snaps

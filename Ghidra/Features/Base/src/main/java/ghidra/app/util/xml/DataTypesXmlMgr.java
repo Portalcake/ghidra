@@ -30,7 +30,6 @@ import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.task.TaskMonitor;
-import ghidra.util.task.TaskMonitorAdapter;
 import ghidra.util.xml.*;
 import ghidra.xml.*;
 
@@ -245,7 +244,7 @@ public class DataTypesXmlMgr {
 	private boolean processEnum(XmlTreeNode root) {
 		XmlElement element = root.getStartElement();
 		String name = element.getAttribute("NAME");
-		String comment = getRegularComment(root);
+		String enuumComment = getRegularComment(root);
 		CategoryPath cp = getCategoryPath(element);
 		int size = XmlUtilities.parseInt(element.getAttribute("SIZE"), defaultEnumSize);
 
@@ -257,9 +256,10 @@ public class DataTypesXmlMgr {
 			XmlElement childElement = node.getStartElement();
 			String entryName = childElement.getAttribute("NAME");
 			long entryValue = XmlUtilities.parseLong(childElement.getAttribute("VALUE"));
-			enuum.add(entryName, entryValue);
+			String comment = childElement.getAttribute("COMMENT");
+			enuum.add(entryName, entryValue, comment);
 		}
-		enuum.setDescription(comment);
+		enuum.setDescription(enuumComment);
 		dataManager.addDataType(enuum, null);
 		return true;
 	}
@@ -288,13 +288,15 @@ public class DataTypesXmlMgr {
 			td.setCategoryPath(cp);
 		}
 		catch (DuplicateNameException e) {
+			log.appendMsg("Unable to place typedef '" + name + "' in category '" + cp + "'");
 		}
 
 		dataManager.addDataType(td, null);
 		return true;
 	}
 
-	private boolean processStructure(XmlTreeNode root, boolean firstPass) {
+	private boolean processStructure(XmlTreeNode root, boolean firstPass)
+			throws XmlAttributeException {
 		XmlElement element = root.getStartElement();
 		String name = element.getAttribute("NAME");
 		CategoryPath path = getCategoryPath(element);
@@ -546,11 +548,11 @@ public class DataTypesXmlMgr {
 		writeRegularComment(writer, enuum.getDescription());
 
 		String[] names = enuum.getNames();
-		Arrays.sort(names);
 		for (String name : names) {
 			attrs = new XmlAttributes();
 			attrs.addAttribute("NAME", name);
 			attrs.addAttribute("VALUE", enuum.getValue(name), true);
+			attrs.addAttribute("COMMENT", enuum.getComment(name));
 			writer.startElement("ENUM_ENTRY", attrs);
 			writer.endElement("ENUM_ENTRY");
 		}
@@ -649,7 +651,8 @@ public class DataTypesXmlMgr {
 
 	private void writerMember(XmlWriter writer, DataTypeComponent member) {
 		XmlAttributes attrs = new XmlAttributes();
-		// TODO: how should we output bitfields (packed/non-packed) and flex array
+		// TODO: how should we output bitfields (packed/non-packed)
+		// TODO: multiple components at same offset (e.g., zero-length arrays) could throw-off IDA XML import
 		attrs.addAttribute("OFFSET", member.getOffset(), true);
 		attrs.addAttribute("DATATYPE", member.getDataType().getDisplayName());
 		attrs.addAttribute("DATATYPE_NAMESPACE", member.getDataType().getCategoryPath().getPath());
@@ -665,8 +668,8 @@ public class DataTypesXmlMgr {
 
 	/**
 	 * Output data types in XML format for debugging purposes.
-	 * NOTE: There is no support for reading the XML produced by this
-	 * method.
+	 * NOTE: There is no support for reading the XML produced by this method.
+	 * @param dataManager the data type manager
 	 * @param outputFilename name of the output file
 	 * @throws IOException if there was a problem writing to the file
 	 */
@@ -682,9 +685,10 @@ public class DataTypesXmlMgr {
 		MessageLog log = new MessageLog();
 		DataTypesXmlMgr mgr = new DataTypesXmlMgr(dataManager, log);
 		try {
-			mgr.write(writer, TaskMonitorAdapter.DUMMY_MONITOR);
+			mgr.write(writer, TaskMonitor.DUMMY);
 		}
 		catch (CancelledException e) {
+			// can't happen with dummy monitor
 		}
 
 		writer.close();
